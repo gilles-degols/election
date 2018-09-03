@@ -44,6 +44,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       if(electionService.actorRefInConfig(sender())) {
         logger.info(s"[Waiting state] Received Ping message: $message")
         electionService.addJvmMessage(message)
+        electionService.watchJvm(message.jvmId, message.actorRef)
       }
 
     case Terminated(externalActor) =>
@@ -76,6 +77,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       if(electionService.actorRefInConfig(sender())) {
         logger.info(s"[Leader state] Received Ping message: $message")
         electionService.addJvmMessage(message)
+        electionService.watchJvm(message.jvmId, message.actorRef)
       }
 
     case Terminated(externalActor) =>

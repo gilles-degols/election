@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future, TimeoutException}
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 /**
   * Created by Gilles.Degols on 27-08-18.
@@ -36,6 +36,10 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     */
   private var _jvm_histories: Map[String, JVMHistory] = Map.empty
 
+  /**
+    * Every time we receive a jvm message, we add it to the history. The watcher is node on another level.
+    * @param remoteMessage
+    */
   def addJvmMessage(remoteMessage: RemoteMessage): Unit = {
     val jvmHistory = _jvm_histories.get(remoteMessage.jvmId) match {
       case Some(history) => history
@@ -56,8 +60,14 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def watchJvm(jvmId: String, actorRef: ActorRef): Unit = {
     jvmActorRefs.get(jvmId) match {
       case None =>
-        context.watch(actorRef)
-        jvmActorRefs = jvmActorRefs ++ Map(jvmId -> actorRef)
+        // The watcher could fail if it is not available anymore
+        Try{context.watch(actorRef)} match {
+          case Success(res) =>
+            jvmActorRefs = jvmActorRefs ++ Map(jvmId -> actorRef)
+          case Failure(err) =>
+            logger.warn("Failed to put a watcher on a jvm, it probably died during the process.")
+        }
+
       case Some(res) =>
       // Nothing to do, already watching
     }
