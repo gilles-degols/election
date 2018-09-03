@@ -19,3 +19,19 @@ class RemoteMessage(actorRef: ActorRef) {
 case class Ping(actorRef: ActorRef) extends RemoteMessage(actorRef){
   override def toString: String = s"Ping: $actorRef @ $creationDatetime"
 }
+
+/**
+  * Internal messages
+  */
+case object BecomeWaiting
+case object BecomeRunning
+
+/**
+  * Order to send Ping messages to every nodes. Also used to discover nodes.
+  */
+case object SendPingMessages
+
+/**
+  * The leader was lost, or there is currently no leader (when the process is starting up)
+  */
+case object AttemptElection
