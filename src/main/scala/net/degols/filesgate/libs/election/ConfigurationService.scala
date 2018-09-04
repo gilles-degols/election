@@ -1,10 +1,14 @@
 package net.degols.filesgate.libs.election
 
 
+import java.io.File
+
 import com.google.inject.Inject
-import com.typesafe.config.Config
+import com.typesafe.config.{Config, ConfigFactory}
+
 import collection.JavaConverters._
 import scala.concurrent.duration._
+import scala.util.Try
 
 
 case class ElectionNode(rawPath: String) {
@@ -50,34 +54,57 @@ object ConfigurationService {
   * Created by Gilles.Degols on 03-09-18.
   */
 class ConfigurationService @Inject()(config: Config) {
+  lazy val fallbackConfig: Config = {
+    val fileInSubproject = new File("../election/src/main/resources/application.conf")
+    val fileInProject = new File("main/resources/application.conf")
+    if (fileInSubproject.exists()) {
+      ConfigFactory.load(ConfigFactory.parseFile(fileInSubproject))
+    } else {
+      ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
+    }
+  }
+
+
   /**
     * List of nodes we have to watch / monitor. Those are needed to know if we have to watch 3 of them, or more, and to be able
     * to contact them. Try to not exceed 5.
     */
-  val electionNodes: List[ElectionNode] = config.getStringList("election.nodes").asScala.toList.map(node => ElectionNode(node))
+  val electionNodes: List[ElectionNode] = getStringList("election.nodes").map(node => ElectionNode(node))
 
   /**
     * How much time should we wait to reschedule a DiscoverNodes and send ping ? A low value (1 second) is recommended.
     * Ping and discovery is the same code.
     * This value must be smaller than the electionAttemptFrequency.
     */
-  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-s") seconds
+  val discoverNodesFrequency: FiniteDuration = getInt("election.discover-nodes-frequency-s") seconds
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-s") seconds
+  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-s") seconds
 
   /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
     * time for all services to reply, and avoid the system being stuck. Around 10 seconds should be enough.
     */
-  val electionAttemptFrequency: FiniteDuration = config.getInt("election.election-attempt-frequency-s") seconds
+  val electionAttemptFrequency: FiniteDuration = getInt("election.election-attempt-frequency-s") seconds
 
   /**
     * Maximum time difference between two nodes. A correct system should always be synchronized with less than 100ms of
     * drift. Allowing more than a few seconds is asking for troubles. Don't forget that we only measure time when we are
     * processing a message, so it will be always be a bit bigger than the actual time difference
     */
-  val maximumTimeDifferenceBetweenNodes: FiniteDuration = 5 seconds
+  val maximumTimeDifferenceBetweenNodes: FiniteDuration = getInt("election.maximum-time-difference-between-nodes-s") seconds
+
+
+  /**
+    * Methods to get data from the embedded configuration, or the project configuration (it can override it)
+    */
+  private def getInt(path: String): Int = {
+    Try{config.getInt(path)}.getOrElse(fallbackConfig.getInt(path))
+  }
+
+  private def getStringList(path: String): List[String] = {
+    Try{config.getStringList(path)}.getOrElse(fallbackConfig.getStringList(path)).asScala.toList
+  }
 }
