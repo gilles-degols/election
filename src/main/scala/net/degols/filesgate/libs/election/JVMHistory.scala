@@ -9,4 +9,6 @@ class JVMHistory(id: String) {
   private val _messages = ListBuffer.empty[RemoteMessage]
 
   def addMessage(message: RemoteMessage): Unit = _messages.append(message)
+
+  def lastPing(): Option[Ping] = _messages.filter(_.isInstanceOf[Ping]).map(_.asInstanceOf[Ping]).lastOption
 }

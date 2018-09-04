@@ -59,11 +59,25 @@ class ConfigurationService @Inject()(config: Config) {
   /**
     * How much time should we wait to reschedule a DiscoverNodes and send ping ? A low value (1 second) is recommended.
     * Ping and discovery is the same code.
+    * This value must be smaller than the electionAttemptFrequency.
     */
-  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-s") second
+  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-s") seconds
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-s") second
+  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-s") seconds
+
+  /**
+    * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
+    * time for all services to reply, and avoid the system being stuck. Around 10 seconds should be enough.
+    */
+  val electionAttemptFrequency: FiniteDuration = config.getInt("election.election-attempt-frequency-s") seconds
+
+  /**
+    * Maximum time difference between two nodes. A correct system should always be synchronized with less than 100ms of
+    * drift. Allowing more than a few seconds is asking for troubles. Don't forget that we only measure time when we are
+    * processing a message, so it will be always be a bit bigger than the actual time difference
+    */
+  val maximumTimeDifferenceBetweenNodes: FiniteDuration = 5 seconds
 }
