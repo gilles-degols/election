@@ -16,36 +16,35 @@ class RemoteMessage(actorRef: ActorRef) {
  *
   * @param actorRef remote actor ref
   */
-case class Ping(actorRef: ActorRef, leaderActorRef: Option[ActorRef]) extends RemoteMessage(actorRef){
+case class Ping(actorRef: ActorRef, leaderActorRef: Option[ActorRef], termNumber: Long) extends RemoteMessage(actorRef){
   override def toString: String = s"Ping: $actorRef @ $creationDatetime"
 }
 
 /**
   * When a new election is needed, a message is sent to every process. We cannot simply assume that if A can talk to B,
   * the opposite is true. Because of that, the election needs an acknowledgment from each node of the majority.
-  * The "id" is auto-incremented to keep track of sent messages of ElectionSeed, to be sure that we receive an acknowledgment
-  * from the last ElectionSeed (time will be checked as well). The same id is used to send the same messages to multiple actors.
-  * The "seed" is a randomly generated number, to decide of a winning node. The node with the highest value will be elected
-  * as master. A check will be done to avoid accepting the same seed for two nodes.
+  * The "termNumber" is a monotonously increasing number, to use the Raft algorithm, to decide of a winning node. The node with the highest value will be elected
+  * as leader (if other conditions are met).
   */
-case class ElectionSeed(actorRef: ActorRef, seed: Long, id: Long) extends RemoteMessage(actorRef) {
-  override def toString: String = s"ElectionSeed: $actorRef @ $creationDatetime"
+case class RequestVotes(actorRef: ActorRef, termNumber: Long) extends RemoteMessage(actorRef) {
+  override def toString: String = s"RequestVotes: $actorRef @ $creationDatetime"
 }
 
-abstract class ElectionSeedReply(actorRef: ActorRef, val electionSeed: ElectionSeed) extends RemoteMessage(actorRef)
+abstract class RequestVotesReply(actorRef: ActorRef, val requestVotes: RequestVotes, val otherElectionSeeds: List[RequestVotes]) extends RemoteMessage(actorRef)
 
-case class ElectionSeedAccepted(actorRef: ActorRef, override val electionSeed: ElectionSeed) extends ElectionSeedReply(actorRef, electionSeed) {
-  override def toString: String = s"ElectionSeedAccepted: $actorRef @ $creationDatetime"
+case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes]) extends RequestVotesReply(actorRef, electionSeed, otherElectionSeeds) {
+  override def toString: String = s"RequestVotesAccepted: $actorRef @ $creationDatetime"
 }
-case class ElectionSeedRefused(actorRef: ActorRef, override val electionSeed: ElectionSeed, reason: String) extends ElectionSeedReply(actorRef, electionSeed) {
-  override def toString: String = s"ElectionSeedRefused: $actorRef @ $creationDatetime, reason: $reason"
+case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, electionSeed, otherElectionSeeds) {
+  override def toString: String = s"RequestVotesRefused: $actorRef @ $creationDatetime, reason: $reason"
 }
 
 /**
   * Internal messages
   */
-case object BecomeWaiting
-case object BecomeRunning
+case object BecomeCandidate
+case object BecomeFollower
+case object BecomeLeader
 
 /**
   * Order to send Ping messages to every nodes. Also used to discover nodes.

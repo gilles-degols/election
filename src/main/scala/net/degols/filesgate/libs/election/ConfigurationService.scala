@@ -76,25 +76,19 @@ class ConfigurationService @Inject()(config: Config) {
     * Ping and discovery is the same code.
     * This value must be smaller than the electionAttemptFrequency.
     */
-  val discoverNodesFrequency: FiniteDuration = getInt("election.discover-nodes-frequency-s") seconds
+  val discoverNodesFrequency: FiniteDuration = getInt("election.discover-nodes-frequency-ms") millis
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-s") seconds
+  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-s") millis
 
   /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
-    * time for all services to reply, and avoid the system being stuck. Around 10 seconds should be enough.
+    * time for all services to reply, and avoid the system being stuck.
     */
-  val electionAttemptFrequency: FiniteDuration = getInt("election.election-attempt-frequency-s") seconds
-
-  /**
-    * Maximum time difference between two nodes. A correct system should always be synchronized with less than 100ms of
-    * drift. Allowing more than a few seconds is asking for troubles. Don't forget that we only measure time when we are
-    * processing a message, so it will be always be a bit bigger than the actual time difference
-    */
-  val maximumTimeDifferenceBetweenNodes: FiniteDuration = getInt("election.maximum-time-difference-between-nodes-s") seconds
+  val electionAttemptMaxFrequency: FiniteDuration = getInt("election.election-attempt-max-frequency-ms") millis
+  val electionAttemptMinFrequency: FiniteDuration = getInt("election.election-attempt-max-frequency-ms") millis
 
 
   /**

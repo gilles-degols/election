@@ -5,17 +5,23 @@ import javax.inject.Inject
 import akka.actor.{Actor, ActorRef, Kill, Terminated}
 import org.slf4j.LoggerFactory
 
+import scala.util.Random
+import scala.concurrent.duration._
+
 /**
   * The external code using the election system will need to instantiate one instance of the ElectionActor with the fallback
   */
 @Singleton
 class ElectionActor @Inject()(electionService: ElectionService, configurationService: ConfigurationService) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
+  private val random = new Random(System.currentTimeMillis())
 
+  // TODO: Add actor to notify once a leader has been found. We also need to implement simple watchers of the election, not trying to
+  // become master, but still being warned if a leader changed.
 
   override def preStart(): Unit = {
     electionService.context = context
-    self ! BecomeWaiting
+    self ! BecomeFollower
   }
 
   /**
@@ -23,15 +29,11 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     * @return
     */
   override def receive: Receive = {
-    case BecomeWaiting =>
+    case BecomeFollower =>
       logger.info(s"[Receive state] Switch from the receive state to the waiting state.")
-      context.become(waiting)
+      context.become(follower)
       context.system.scheduler.schedule(configurationService.discoverNodesFrequency, configurationService.discoverNodesFrequency,
                                         self, SendPingMessages)
-
-      // This is a security in case some Akka messages are lost, we want to be sure to retry an election for any problem
-      context.system.scheduler.schedule(configurationService.electionAttemptFrequency, configurationService.electionAttemptFrequency,
-        self, AttemptElection)
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -39,75 +41,107 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       }
   }
 
+  def candidate: Receive = { // Trying to be leader
+    case message: Ping =>
+      handlePingMessage(message, sender())
+
+    case message: RequestVotes =>
+      logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
+      val reply = electionService.replyToRequestVotes(message)
+      if(reply.isLeft) {
+        logger.debug("[Candidate state] Accepting the external RequestVotes.")
+        sender() ! reply.left.get
+      } else {
+        logger.debug(s"[Candidate state] Rejecting the external RequestVotes, reason: ${reply.right.get.reason}.")
+        sender() ! reply.right.get
+
+        if(message.termNumber > electionService.termNumber) {
+          logger.debug(s"[Candidate state] Got a bigger term number from another candidate, switch to follower state.")
+          electionService.increaseTermNumber(Option(message.termNumber))
+          context.become(follower)
+        }
+      }
+
+    case AttemptElection =>
+      electionService.lastLeader match {
+        case Some(res) =>
+          logger.debug("[Candidate state] A leader is still known, we do not trigger a new election.")
+        case None =>
+          logger.info("[Candidate state] Triggering a new election.")
+          electionService.sendRequestVotes()
+      }
+
+    case message: RequestVotesAccepted | RequestVotesRefused =>
+      logger.debug("[Candidate state] Received a reply to our RequestVotes message.")
+      val becameLeader = electionService.becomeLeaderWithReplyFromElectionSeed(message)
+      if(becameLeader) {
+        context.become(leader)
+        // We need to contact the other nodes directly, to inform them of their new leader.
+        electionService.sendPingToAllNodes()
+      }
+
+    case x =>
+      if(electionService.actorRefInConfig(sender())) {
+        logger.warn(s"[Candidate state] Unknown message received in the ElectionActor: $x")
+      }
+  }
+
   /**
     * The process is waiting for the election to start, or to find the current leader
     * @return
     */
-  def waiting: Receive = {// Waiting / slave status
+  def follower: Receive = {// Waiting / slave status
     case message: Ping =>
-      if(electionService.actorRefInConfig(sender())) {
-        logger.info(s"[Waiting state] Received Ping message: $message")
-        electionService.addJvmMessage(message)
-        electionService.watchJvm(message.jvmId, message.actorRef)
-        electionService.lastLeader = electionService.leaderFromPings
-      }
+      handlePingMessage(message, sender())
+
+    case BecomeCandidate =>
+      logger.info("[Follower state] Change to Candidate state")
+      electionService.increaseTermNumber(None)
+      context.become(candidate)
+      scheduleNextTerm()
 
     case Terminated(externalActor) =>
       // We simply unwatch the actor. We do not need to schedule a DiscoverNodes as the external node should do that
       // once it has been re-started.
 
       val jvmId = electionService.jvmIdForActorRef(externalActor)
-      logger.info(s"[Receive state] Got a Terminated message from external actor: $externalActor. Jvm Id: $jvmId")
+      logger.info(s"[Follower state] Got a Terminated message from external actor: $externalActor. Jvm Id: $jvmId")
       electionService.unwatchJvm(externalActor)
 
       if(electionService.lastLeader.isDefined && electionService.lastLeader.get == externalActor) {
-        logger.info("[Receive state] The Terminated message belonged to the leader, trigger a new election.")
+        logger.info("[Follower state] The Terminated message belonged to the leader, trigger a new election.")
         electionService.lastLeader = None
-        self ! AttemptElection
+        self ! BecomeCandidate
       }
 
     case SendPingMessages =>
       electionService.sendPingToAllNodes()
 
-    case AttemptElection =>
-      electionService.lastLeader match {
-        case Some(res) => logger.debug("[Waiting state] A leader is still known, we do not trigger a new election.")
-        case None =>
-          logger.info("[Waiting state] Triggering a new election.")
-          electionService.sendElectionSeeds()
-      }
-
-    case message: ElectionSeed =>
-      logger.debug("[Waiting state] Received an external ElectionSeed message, reply to it.")
-      val reply = electionService.replyToElectionSeed(message)
+    case message: RequestVotes =>
+      logger.debug("[Follower state] Received a RequestVotes, reply to it.")
+      val reply = electionService.replyToRequestVotes(message)
       if(reply.isLeft) {
-        logger.debug("[Waiting state] Accepting the external ElectionSeed.")
+        logger.debug("[Follower state] Accepting the external RequestVotes.")
         sender() ! reply.left.get
       } else {
-        logger.debug(s"[Waiting state] Rejecting the external ElectionSeed, reason: ${reply.right.get.reason}.")
+        logger.debug(s"[Follower state] Rejecting the external RequestVotes, reason: ${reply.right.get.reason}.")
         sender() ! reply.right.get
-      }
 
-    case message: ElectionSeedAccepted | ElectionSeedRefused =>
-      logger.debug("[Waiting state] Received a reply to our ElectionSeed message.")
-      val becameLeader = electionService.becomeLeaderWithReplyFromElectionSeed(message)
-      if(becameLeader) {
-        context.become(leader)
+        if(message.termNumber > electionService.termNumber) {
+          logger.debug(s"[Follower state] Got a bigger term number from another candidate, update the term number.")
+          electionService.increaseTermNumber(Option(message.termNumber))
+        }
       }
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
-        logger.warn(s"[Waiting state] Unknown message received in the ElectionActor: $x")
+        logger.warn(s"[Follower state] Unknown message received in the ElectionActor: $x")
       }
   }
 
   def leader: Receive = {// Leader status
     case message: Ping =>
-      if(electionService.actorRefInConfig(sender())) {
-        logger.info(s"[Leader state] Received Ping message: $message")
-        electionService.addJvmMessage(message)
-        electionService.watchJvm(message.jvmId, message.actorRef)
-      }
+      handlePingMessage(message, sender())
 
     case Terminated(externalActor) =>
       val jvmId = electionService.jvmIdForActorRef(externalActor)
@@ -129,4 +163,21 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       }
   }
 
+
+  private def handlePingMessage(message: Ping, sender: ActorRef): Unit = {
+    if(electionService.actorRefInConfig(sender)) {
+      logger.info(s"[Any state] Received Ping message: $message")
+      electionService.addJvmMessage(message)
+      electionService.watchJvm(message.jvmId, message.actorRef)
+      electionService.lastLeader = electionService.leaderFromPings
+    }
+
+  }
+
+  private def scheduleNextTerm(): Unit = {
+    // Random delay to start the RequestVotes, according to the Raft algorithm to avoid having too many split voting
+    val delay = configurationService.electionAttemptMaxFrequency.toMillis - configurationService.electionAttemptMinFrequency.toMillis
+    val requestVotesDelay = configurationService.electionAttemptMinFrequency.toMillis + random.nextInt(delay.toInt)
+    context.system.scheduler.scheduleOnce(requestVotesDelay millis, self, AttemptElection)
+  }
 }
