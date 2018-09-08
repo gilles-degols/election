@@ -47,9 +47,19 @@ case object BecomeFollower
 case object BecomeLeader
 
 /**
-  * Order to send Ping messages to every nodes. Also used to discover nodes.
+  * Order to send Ping messages to every nodes. Not used to discover nodes (more expensive).
   */
 case object SendPingMessages
+
+/**
+  * Order to check that we received the Ping messages correctly in time
+  */
+case object CheckPingMessages
+
+/**
+  * Discover nodes for which we don't have any ActorRef
+  */
+case object DiscoverNodes
 
 /**
   * The leader was lost, or there is currently no leader (when the process is starting up)

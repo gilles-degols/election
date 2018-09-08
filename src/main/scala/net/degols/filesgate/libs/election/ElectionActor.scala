@@ -32,8 +32,18 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case BecomeFollower =>
       logger.info(s"[Receive state] Switch from the receive state to the waiting state.")
       context.become(follower)
+
+      // Try to discover the other nodes (=actorRef) some times.
       context.system.scheduler.schedule(configurationService.discoverNodesFrequency, configurationService.discoverNodesFrequency,
-                                        self, SendPingMessages)
+                                        self, DiscoverNodes)
+
+      // Send hearbeat frequently
+      context.system.scheduler.schedule(configurationService.heartbeatFrequency, configurationService.heartbeatFrequency,
+        self, SendPingMessages)
+
+      // Check for heartbeat (more) frequently, based on the local time of the server, not the external time
+      context.system.scheduler.schedule(configurationService.heartbeatCheckFrequency, configurationService.heartbeatCheckFrequency,
+        self, CheckPingMessages)
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -43,7 +53,13 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
   def candidate: Receive = { // Trying to be leader
     case message: Ping =>
-      handlePingMessage(message, sender())
+      handlePingMessage(message, sender(), "candidate")
+
+    case SendPingMessages | DiscoverNodes =>
+      // In the candidate state we do not need to send Ping messages, nor discover the other nodes
+
+    case CheckPingMessages =>
+      electionService.checkPingFromAllNodes()
 
     case message: RequestVotes =>
       logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
@@ -77,7 +93,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       if(becameLeader) {
         context.become(leader)
         // We need to contact the other nodes directly, to inform them of their new leader.
-        electionService.sendPingToAllNodes()
+        electionService.sendPingToKnownNodes()
       }
 
     case x =>
@@ -92,7 +108,16 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     */
   def follower: Receive = {// Waiting / slave status
     case message: Ping =>
-      handlePingMessage(message, sender())
+      handlePingMessage(message, sender(), "follower")
+
+    case SendPingMessages | DiscoverNodes =>
+      // In the follower state we do not need to send Ping messages, nor discover the other nodes
+      // TODO: Maybe it would still be interesting to have the actorRef from every node to allow a faster (smoother?) election
+      // when we are in the candidate state?
+
+    case CheckPingMessages =>
+      electionService.checkPingFromAllNodes()
+
 
     case BecomeCandidate =>
       logger.info("[Follower state] Change to Candidate state")
@@ -113,9 +138,6 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         electionService.lastLeader = None
         self ! BecomeCandidate
       }
-
-    case SendPingMessages =>
-      electionService.sendPingToAllNodes()
 
     case message: RequestVotes =>
       logger.debug("[Follower state] Received a RequestVotes, reply to it.")
@@ -141,7 +163,16 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
   def leader: Receive = {// Leader status
     case message: Ping =>
-      handlePingMessage(message, sender())
+      handlePingMessage(message, sender(), "leader")
+
+    case SendPingMessages =>
+      electionService.sendPingToKnownNodes()
+
+    case DiscoverNodes =>
+      electionService.sendPingToUnreachableNodes()
+
+    case CheckPingMessages =>
+      electionService.checkPingFromAllNodes()
 
     case Terminated(externalActor) =>
       val jvmId = electionService.jvmIdForActorRef(externalActor)
@@ -164,14 +195,20 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
   }
 
 
-  private def handlePingMessage(message: Ping, sender: ActorRef): Unit = {
+  private def handlePingMessage(message: Ping, sender: ActorRef, contextType: String): Unit = {
     if(electionService.actorRefInConfig(sender)) {
-      logger.info(s"[Any state] Received Ping message: $message")
+      logger.info(s"[$contextType state] Received Ping message: $message")
       electionService.addJvmMessage(message)
       electionService.watchJvm(message.jvmId, message.actorRef)
+      if(message.termNumber > electionService.termNumber) {
+        if(contextType == "leader" || contextType == "candidate") {
+          logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger term, switch to follower.")
+          context.become(follower)
+        }
+      }
+      electionService.increaseTermNumber(Option(message.termNumber))
       electionService.lastLeader = electionService.leaderFromPings
     }
-
   }
 
   private def scheduleNextTerm(): Unit = {

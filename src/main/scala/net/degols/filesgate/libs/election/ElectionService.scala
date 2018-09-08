@@ -138,14 +138,24 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
-    * Send a ping to every actor, reachable or not.
+    * Send a ping to every actor-ref, they must be reachable first, we don't want to resolve an actor ref here.
     */
-  def sendPingToAllNodes(): Unit = {
+  def sendPingToKnownNodes(): Unit = {
     configurationService.electionNodes.foreach(electionNode => {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Quite simple to contact it
           logger.debug(s"Send ping to reachable ElectionNode: $electionNode")
           res ! Ping(context.self, lastLeader, _termNumber)
+        case None => // Need to resolve the actor path. It might not exist, we are not sure
+          logger.debug(s"Do not send ping to previously unreachable ElectionNode: $electionNode")
+      }
+    })
+  }
+
+  def sendPingToUnreachableNodes(): Unit = {
+    configurationService.electionNodes.foreach(electionNode => {
+      actorRefForElectionNode(electionNode) match {
+        case Some(res) => // Nothing to do here
         case None => // Need to resolve the actor path. It might not exist, we are not sure
           logger.debug(s"Send ping to previously unreachable ElectionNode: $electionNode")
           sendPingToUnreachableNode(electionNode, _termNumber)
@@ -228,13 +238,12 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       case None => None
     }
 
-    _otherRequestVotes = _otherRequestVotes :+ requestVotes
-
     if(_lastRepliedRequestVotes.isDefined) {
-      Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Already replied to another RequestVotes."))
-    } else if(_lastRequestVotes.isDefined && requestVotes.jvmId != currentJvmId && requestVotes.termNumber <= _termNumber) {
-      Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Smaller or equal term number than the one we have: ${requestVotes.termNumber} < ${_termNumber}"))
+      Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Already replied to another RequestVotes (${_lastRepliedRequestVotes.get})."))
+    } else if(_lastRequestVotes.isDefined && requestVotes.jvmId != currentJvmId && requestVotes.termNumber < _termNumber) {
+      Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Smaller term number than the one we have: ${requestVotes.termNumber} < ${_termNumber}"))
     } else {
+      _termNumber = requestVotes.termNumber
       _lastRepliedRequestVotes = Option(requestVotes)
       Left(RequestVotesAccepted(context.self, requestVotes, _otherRequestVotes))
     }
