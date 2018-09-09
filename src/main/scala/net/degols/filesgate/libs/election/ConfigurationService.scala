@@ -74,17 +74,9 @@ class ConfigurationService @Inject()(config: Config) {
   /**
     * How much time should we wait to reschedule a DiscoverNodes and send ping ? A low value (1 second) is recommended.
     * Ping and discovery is the same code.
-    * This value must be smaller than the electionAttemptFrequency.
+    * This value must be bigger than the timeoutUnreachableNode.
     */
   val discoverNodesFrequency: FiniteDuration = getInt("election.discover-nodes-frequency-ms") millis
-
-  /**
-    * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
-    * the term if we are already in this mode)
-    */
-  val heartbeatCheckFrequency: FiniteDuration = getInt("election.heartbeat-check-frequency-ms") millis
-
-  val heartbeatFrequency: FiniteDuration = getInt("election.heartbeat-frequency-ms") millis
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
@@ -92,11 +84,22 @@ class ConfigurationService @Inject()(config: Config) {
   val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-s") millis
 
   /**
+    * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
+    * the term if we are already in this mode)
+    */
+  val heartbeatCheckFrequency: FiniteDuration = getInt("election.heartbeat-check-frequency-ms") millis
+
+  /**
+    * We send Ping messages frequently
+    */
+  val heartbeatFrequency: FiniteDuration = getInt("election.heartbeat-frequency-ms") millis
+
+  /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
     * time for all services to reply, and avoid the system being stuck.
     */
   val electionAttemptMaxFrequency: FiniteDuration = getInt("election.election-attempt-max-frequency-ms") millis
-  val electionAttemptMinFrequency: FiniteDuration = getInt("election.election-attempt-max-frequency-ms") millis
+  val electionAttemptMinFrequency: FiniteDuration = getInt("election.election-attempt-min-frequency-ms") millis
 
 
   /**

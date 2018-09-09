@@ -53,30 +53,18 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
   def candidate: Receive = { // Trying to be leader
     case message: Ping =>
+      // If a new term is found, we will switch to follower state
       handlePingMessage(message, sender(), "candidate")
 
     case SendPingMessages | DiscoverNodes =>
       // In the candidate state we do not need to send Ping messages, nor discover the other nodes
 
     case CheckPingMessages =>
-      electionService.checkPingFromAllNodes()
+      // In this case, we don't really need to check the ping timeout as we are not following anynone
 
     case message: RequestVotes =>
       logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
-      val reply = electionService.replyToRequestVotes(message)
-      if(reply.isLeft) {
-        logger.debug("[Candidate state] Accepting the external RequestVotes.")
-        sender() ! reply.left.get
-      } else {
-        logger.debug(s"[Candidate state] Rejecting the external RequestVotes, reason: ${reply.right.get.reason}.")
-        sender() ! reply.right.get
-
-        if(message.termNumber > electionService.termNumber) {
-          logger.debug(s"[Candidate state] Got a bigger term number from another candidate, switch to follower state.")
-          electionService.increaseTermNumber(Option(message.termNumber))
-          context.become(follower)
-        }
-      }
+      handleRequestVotes(message, sender(), "candidate")
 
     case AttemptElection =>
       electionService.lastLeader match {
@@ -111,13 +99,21 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       handlePingMessage(message, sender(), "follower")
 
     case SendPingMessages | DiscoverNodes =>
-      // In the follower state we do not need to send Ping messages, nor discover the other nodes
+      // In the follower state we do need to send Ping messages, nor discover the other nodes
       // TODO: Maybe it would still be interesting to have the actorRef from every node to allow a faster (smoother?) election
       // when we are in the candidate state?
 
     case CheckPingMessages =>
-      electionService.checkPingFromAllNodes()
-
+      electionService.jvmIdForLeader() match {
+        case None =>
+          logger.debug("[Follower state] No leader during the check of Ping messages, switch to candidate state.")
+          self ! BecomeCandidate
+        case Some(res) =>
+          if(electionService.hasPingTimeout(res)) {
+            logger.debug("[Follower state] Ping timeout from the other nodes, switch to candidate state.")
+            self ! BecomeCandidate
+          }
+      }
 
     case BecomeCandidate =>
       logger.info("[Follower state] Change to Candidate state")
@@ -141,19 +137,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
     case message: RequestVotes =>
       logger.debug("[Follower state] Received a RequestVotes, reply to it.")
-      val reply = electionService.replyToRequestVotes(message)
-      if(reply.isLeft) {
-        logger.debug("[Follower state] Accepting the external RequestVotes.")
-        sender() ! reply.left.get
-      } else {
-        logger.debug(s"[Follower state] Rejecting the external RequestVotes, reason: ${reply.right.get.reason}.")
-        sender() ! reply.right.get
-
-        if(message.termNumber > electionService.termNumber) {
-          logger.debug(s"[Follower state] Got a bigger term number from another candidate, update the term number.")
-          electionService.increaseTermNumber(Option(message.termNumber))
-        }
-      }
+      handleRequestVotes(message, sender(), "follower")
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -171,8 +155,15 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case DiscoverNodes =>
       electionService.sendPingToUnreachableNodes()
 
+    case SendPingMessages =>
+      electionService.sendPingToKnownNodes()
+
     case CheckPingMessages =>
-      electionService.checkPingFromAllNodes()
+      // We do not need to check Ping messages from the followers / candidates.
+
+    case message: RequestVotes =>
+      logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
+      handleRequestVotes(message, sender(), "candidate")
 
     case Terminated(externalActor) =>
       val jvmId = electionService.jvmIdForActorRef(externalActor)
@@ -184,9 +175,6 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         // We trigger a kill of the current actor, to notify easily the other nodes.
         self ! Kill
       }
-
-    case SendPingMessages =>
-      electionService.sendPingToAllNodes()
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -208,6 +196,22 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       }
       electionService.increaseTermNumber(Option(message.termNumber))
       electionService.lastLeader = electionService.leaderFromPings
+    }
+  }
+
+  private def handleRequestVotes(message: RequestVotes, sender: ActorRef, contextType: String): Unit = {
+    val reply = electionService.replyToRequestVotes(message)
+    if(reply.isLeft) {
+      logger.debug(s"[$contextType state] Accepting the external RequestVotes.")
+      sender ! reply.left.get
+    } else {
+      logger.debug(s"[$contextType state] Rejecting the external RequestVotes, reason: ${reply.right.get.reason}.")
+      sender ! reply.right.get
+
+      if(message.termNumber > electionService.termNumber) {
+        logger.debug(s"[$contextType state] Got a bigger term number from another candidate, update the term number.")
+        electionService.increaseTermNumber(Option(message.termNumber))
+      }
     }
   }
 

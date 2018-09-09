@@ -12,6 +12,15 @@ class RemoteMessage(actorRef: ActorRef) {
 }
 
 /**
+  * Wrapper around any RemoteMessage
+  */
+class RemoteMessageWrapper(val remoteMessage: RemoteMessage){
+  val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
+
+  override def toString: String = s"RemoteMessageWrapper: ${remoteMessage}"
+}
+
+/**
   * Message used to notify every ElectionActor of the existence of the JVM. It also sends the last leader actor (if found)
  *
   * @param actorRef remote actor ref
@@ -37,6 +46,16 @@ case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: R
 }
 case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, electionSeed, otherElectionSeeds) {
   override def toString: String = s"RequestVotesRefused: $actorRef @ $creationDatetime, reason: $reason"
+}
+
+/**
+  * Small wrapper to focus on the local reception time (=local creation datetime) and not the external time
+  * @param requestVotesReply
+  */
+case class RequestVotesReplyWrapper(requestVotesReply: RequestVotesReply){
+  val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
+
+  override def toString: String = s"RequestVotesReplyWrapper: ${requestVotesReply}"
 }
 
 /**

@@ -38,10 +38,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   private var _otherRequestVotes: List[RequestVotes] = List.empty[RequestVotes]
 
   /**
-    * List of accepted answers for the _lastRequestVotes. Rejections are not saved, we rather cancel the _lastRequestVotes.
+    * List of accepted answers for the _lastRequestVotes.
     */
-  private var acceptingJvmIds: List[String] = List.empty[String]
-  private var refusingJvmIds: List[String] = List.empty[String]
+  private var _requestVotesReplies: List[RequestVotesReplyWrapper] = List.empty[RequestVotesReplyWrapper]
 
   /**
     * Must be set by the ElectionActor
@@ -72,6 +71,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * @param remoteMessage
     */
   def addJvmMessage(remoteMessage: RemoteMessage): Unit = {
+    val wrapper = new RemoteMessageWrapper(remoteMessage)
     val jvmHistory = _jvm_histories.get(remoteMessage.jvmId) match {
       case Some(history) => history
       case None =>
@@ -79,7 +79,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         _jvm_histories(remoteMessage.jvmId)
     }
 
-    jvmHistory.addMessage(remoteMessage)
+    jvmHistory.addMessage(wrapper)
   }
 
   /**
@@ -88,8 +88,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def leaderFromPings: Option[ActorRef] = {
     if(enoughReachableNodes) {
       val distinctLeaders = jvmActorRefs.flatMap(jvm => {
-        _jvm_histories(jvm._1).lastPing()
-      }).map(_.actorRef).toList.distinct
+        _jvm_histories(jvm._1).lastPingWrapper()
+      }).map(_.remoteMessage.asInstanceOf[Ping]).map(_.actorRef).toList.distinct
 
       if(distinctLeaders.isEmpty) {
         logger.debug("No leader received from external Ping messages, wait for the election.")
@@ -223,7 +223,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   private def generateElectionSeed(): Unit = {
     _termNumber += 1L
     _lastRequestVotes = Option(RequestVotes(context.self, _termNumber))
-    acceptingJvmIds = List.empty[String]
+    _requestVotesReplies = List.empty[RequestVotesReplyWrapper]
     _otherRequestVotes = List.empty[RequestVotes]
   }
 
@@ -234,7 +234,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     // Find last ping of the external node, to roughly estimate the time difference and verify if a new seed should have already
     // been generated
     val lastPing = _jvm_histories.get(requestVotes.jvmId) match {
-      case Some(history) => history.lastPing()
+      case Some(history) => history.lastPingWrapper()
       case None => None
     }
 
@@ -244,17 +244,24 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Smaller term number than the one we have: ${requestVotes.termNumber} < ${_termNumber}"))
     } else {
       _termNumber = requestVotes.termNumber
-      _lastRepliedRequestVotes = Option(requestVotes)
+      resetTermVariables()
       Left(RequestVotesAccepted(context.self, requestVotes, _otherRequestVotes))
     }
+  }
+
+  /**
+    * Reset variables related to a previous term
+    */
+  def resetTermVariables(): Unit = {
+    _lastRequestVotes = None
+    _lastRepliedRequestVotes = None
+    _requestVotesReplies = List.empty[RequestVotesReplyWrapper]
   }
 
   /**
     * Handle the reply of an ElectionSeed we sent. Return true if we become leader.
     */
   def becomeLeaderWithReplyFromElectionSeed(requestVotesResult: RequestVotesReply): Boolean = {
-    // TODO: We need to check the other seeds, to be sure there is no collision (2 & 5 can talk, 2 & 10 can talk, -> 2 primary could be elected)
-
     if(lastLeader.isDefined) {
       logger.debug(s"A leader has already been defined ($lastLeader), the reply from the external node does not really matter.")
     } else if(requestVotesResult.requestVotes.termNumber != _termNumber) {
@@ -262,21 +269,75 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     } else if(requestVotesResult.isInstanceOf[RequestVotesRefused]) {
       logger.debug("Got one rejection for the RequestVotes.")
       // Even if we get one rejection, we should accept other messages, as we only need the majority of nodes.
-      refusingJvmIds = (refusingJvmIds :+ requestVotesResult.jvmId).distinct
+      _requestVotesReplies = _requestVotesReplies :+ RequestVotesReplyWrapper(requestVotesResult)
     } else if(requestVotesResult.isInstanceOf[RequestVotesAccepted]) {
       logger.debug("Got a reply accepting our RequestVotes, store it.")
-      acceptingJvmIds = (acceptingJvmIds :+ requestVotesResult.jvmId).distinct // Just for security we remove duplicate entries. This should never happen anyway.
+      _requestVotesReplies = _requestVotesReplies :+ RequestVotesReplyWrapper(requestVotesResult)
     } else{
       logger.error(s"Weird, we received an RequestVotesReply ($requestVotesResult) with an unsupported type.")
     }
 
-    // If enough replies, we might decide to become leader
+    // If enough replies, we might decide to become leader, if there is no timeout
+    val acceptingJvmIds = _requestVotesReplies.filter(_.requestVotesReply.isInstanceOf[RequestVotesAccepted]).map(_.requestVotesReply.jvmId)
     if(acceptingJvmIds.length >= nodesForMajority - 1) { // nodesForMajority, minus 1 for the current node
-      logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, we can become primary.")
-      lastLeader = Option(context.self)
-      true
+      if(hasRequestVotesTimeout) {
+        logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, but we cannot become primary as there is a timeout.")
+        false
+      } else {
+        logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, we can become primary.")
+        lastLeader = Option(context.self)
+        true
+      }
     } else {
       false
+    }
+  }
+
+  /**
+    * Return true if we didn't get enough RequestVotes in the expected time,.
+    * In that case, a new term must be started / or we should switch to candidate state.
+    */
+  def hasRequestVotesTimeout: Boolean = {
+    _lastRequestVotes match {
+      case None =>
+        logger.debug("No request votes created by ourselves, nothing to do.")
+        false
+      case Some(requestVotes) =>
+        val maxDifference = configurationService.electionAttemptMaxFrequency.toMillis
+        requestVotes.creationDatetime.getMillis + maxDifference > Tools.datetime().getMillis
+    }
+  }
+
+
+  /**
+    * Return true if we didn't get enough Ping from a given node (the leader for example) in the expected time,.
+    * In that case, we should switch to candidate state.
+    */
+  def hasPingTimeout(jvmId: String): Boolean = {
+    _jvm_histories.get(jvmId) match {
+      case None =>
+        logger.warn("No ping received from any other nodes, nothing to do.")
+        false
+      case Some(history) =>
+        val maxDifference = configurationService.heartbeatCheckFrequency.toMillis
+        history.lastPingWrapper() match {
+          case None =>
+            logger.warn("No ping received from any other nodes, nothing to do.")
+            false
+          case Some(wrapper) =>
+            wrapper.creationDatetime.getMillis + maxDifference > Tools.datetime().getMillis
+        }
+    }
+  }
+
+  /**
+    * If we have a leader, return the appropriate jvm id
+    * @return
+    */
+  def jvmIdForLeader(): Option[String] = {
+    lastLeader match {
+      case Some(res) => jvmIdForActorRef(res)
+      case None => None
     }
   }
 
