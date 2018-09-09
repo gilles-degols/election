@@ -33,6 +33,8 @@ case class ElectionNode(rawPath: String) {
 }
 
 object ConfigurationService {
+  val DispatcherName: String = "ElectionDispatcher"
+
   /**
     * Default election system name. We use a specific one for the election (different than the application one)
     */

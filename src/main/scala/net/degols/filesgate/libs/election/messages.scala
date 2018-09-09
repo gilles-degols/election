@@ -41,10 +41,10 @@ case class RequestVotes(actorRef: ActorRef, termNumber: Long) extends RemoteMess
 
 abstract class RequestVotesReply(actorRef: ActorRef, val requestVotes: RequestVotes, val otherElectionSeeds: List[RequestVotes]) extends RemoteMessage(actorRef)
 
-case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes]) extends RequestVotesReply(actorRef, electionSeed, otherElectionSeeds) {
+case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes]) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesAccepted: $actorRef @ $creationDatetime"
 }
-case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, electionSeed, otherElectionSeeds) {
+case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesRefused: $actorRef @ $creationDatetime, reason: $reason"
 }
 

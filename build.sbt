@@ -24,3 +24,6 @@ libraryDependencies ++= Seq(
 libraryDependencies += "joda-time" % "joda-time" % "2.10"
 
 libraryDependencies += "commons-io" % "commons-io" % "2.4"
+
+// Akka Remoting
+libraryDependencies += "com.typesafe.akka" %% "akka-remote" % akkaVersion

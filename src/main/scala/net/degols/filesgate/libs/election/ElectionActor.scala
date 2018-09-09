@@ -1,10 +1,11 @@
 package net.degols.filesgate.libs.election
 
-import javax.inject.Inject
+import javax.inject.{Inject, Singleton}
 
 import akka.actor.{Actor, ActorRef, Kill, Terminated}
 import org.slf4j.LoggerFactory
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
 import scala.concurrent.duration._
 
@@ -75,7 +76,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
           electionService.sendRequestVotes()
       }
 
-    case message: RequestVotesAccepted | RequestVotesRefused =>
+    case message: RequestVotesReply =>
       logger.debug("[Candidate state] Received a reply to our RequestVotes message.")
       val becameLeader = electionService.becomeLeaderWithReplyFromElectionSeed(message)
       if(becameLeader) {
@@ -154,9 +155,6 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
     case DiscoverNodes =>
       electionService.sendPingToUnreachableNodes()
-
-    case SendPingMessages =>
-      electionService.sendPingToKnownNodes()
 
     case CheckPingMessages =>
       // We do not need to check Ping messages from the followers / candidates.

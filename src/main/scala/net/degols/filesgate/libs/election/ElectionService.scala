@@ -1,10 +1,11 @@
 package net.degols.filesgate.libs.election
 
-import javax.inject.Inject
+import javax.inject.{Inject, Singleton}
 
 import akka.actor.{ActorContext, ActorRef}
 import org.slf4j.LoggerFactory
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future, TimeoutException}
 import scala.util.{Failure, Success, Try, Random}
@@ -15,7 +16,6 @@ import scala.util.{Failure, Success, Try, Random}
 @Singleton
 class ElectionService @Inject()(configurationService: ConfigurationService) {
   private val logger = LoggerFactory.getLogger(getClass)
-
 
   /**
     * Every time we start a new term, we increment it.
