@@ -16,7 +16,7 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   val threadPool: ExecutorService = Executors.newFixedThreadPool(1)
   implicit val executionContext: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(threadPool)
 
-  val config = configurationService.fallbackConfig
+  val config = configurationService.fallbackConfig.getConfig("election")
   println("Try to start the actor system...")
   val actorSystem = ActorSystem(ConfigurationService.ElectionSystemName, config)
   val election: ActorRef = actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)

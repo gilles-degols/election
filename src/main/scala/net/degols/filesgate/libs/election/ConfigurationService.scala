@@ -83,7 +83,7 @@ class ConfigurationService @Inject()(config: Config) {
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-s") millis
+  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-ms") millis
 
   /**
     * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
