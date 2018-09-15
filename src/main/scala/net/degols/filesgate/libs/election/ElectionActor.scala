@@ -16,27 +16,32 @@ import scala.concurrent.duration._
 class ElectionActor @Inject()(electionService: ElectionService, configurationService: ConfigurationService) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
   private val random = new Random(System.currentTimeMillis())
-
+  private var parent: Option[IAmTheParent] = _
   // TODO: Add actor to notify once a leader has been found. We also need to implement simple watchers of the election, not trying to
   // become master, but still being warned if a leader changed.
 
   override def preStart(): Unit = {
     electionService.context = context
-    self ! BecomeFollower
   }
 
   /**
-    * The receive state has almost nothing to do, it should directly switch to the waiting state.
+    * The receive state has almost nothing to do, it should directly switch to the waiting state as soon as it received
+    * the parent information.
     * @return
     */
   override def receive: Receive = {
-    case BecomeFollower =>
-      logger.info(s"[Receive state] Switch from the receive state to the waiting state.")
+    case iamTheParent: IAmTheParent =>
+      logger.info(s"[Receive state] Switch from the receive state to the follower state.")
+      parent = Option(iamTheParent)
       context.become(follower)
 
       // Try to discover the other nodes (=actorRef) some times.
       context.system.scheduler.schedule(configurationService.discoverNodesFrequency, configurationService.discoverNodesFrequency,
                                         self, DiscoverNodes)
+
+      // RequestVotes timeout
+      context.system.scheduler.schedule(configurationService.electionAttemptMaxFrequency, configurationService.electionAttemptMaxFrequency,
+        self, RequestVotesTimeoutCheck)
 
       // Send hearbeat frequently
       context.system.scheduler.schedule(configurationService.heartbeatFrequency, configurationService.heartbeatFrequency,
@@ -61,11 +66,20 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       // In the candidate state we do not need to send Ping messages, nor discover the other nodes
 
     case CheckPingMessages =>
-      // In this case, we don't really need to check the ping timeout as we are not following anynone
+      // In this case, we don't really need to check the ping timeout as we are not following anyone
+
+    case RequestVotesTimeoutCheck =>
+      logger.debug("[Candidate state] Check RequestVotes timeout.")
+      if(electionService.hasRequestVotesTimeout) {
+        logger.warn(s"[Candidate state] RequestVotes timeout for the term ${electionService.termNumber}, schedule a new term.")
+        scheduleNextTerm()
+      }
 
     case message: RequestVotes =>
-      logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
+      val send = sender()
+      logger.debug(s"[Candidate state] Receive a RequestVotes message from another candidate, reply to it ($send).")
       handleRequestVotes(message, sender(), "candidate")
+      // TODO: HANDLE TIMEOUT !
 
     case AttemptElection =>
       electionService.lastLeader match {
@@ -83,6 +97,9 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         context.become(leader)
         // We need to contact the other nodes directly, to inform them of their new leader.
         electionService.sendPingToKnownNodes()
+        // We tell the parent actor that we become the leader
+        logger.debug(s"[Candidate state] Warning the parent actor of the new state: ${context.parent}")
+        parent.get.actorRef ! IAmLeader
       }
 
     case x =>
@@ -99,7 +116,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case message: Ping =>
       handlePingMessage(message, sender(), "follower")
 
-    case SendPingMessages | DiscoverNodes =>
+    case SendPingMessages | DiscoverNodes | RequestVotesTimeoutCheck =>
       // In the follower state we do need to send Ping messages, nor discover the other nodes
       // TODO: Maybe it would still be interesting to have the actorRef from every node to allow a faster (smoother?) election
       // when we are in the candidate state?
@@ -120,6 +137,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       logger.info("[Follower state] Change to Candidate state")
       electionService.increaseTermNumber(None)
       context.become(candidate)
+      parent.get.actorRef ! IAmFollower // No difference between candidate & follower for the parent
       scheduleNextTerm()
 
     case Terminated(externalActor) =>
@@ -154,13 +172,14 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       electionService.sendPingToKnownNodes()
 
     case DiscoverNodes =>
+      logger.debug("[Leader state] Discovering nodes.")
       electionService.sendPingToUnreachableNodes()
 
     case CheckPingMessages =>
       // We do not need to check Ping messages from the followers / candidates.
 
     case message: RequestVotes =>
-      logger.debug("[Candidate state] Receive a RequestVotes message from another candidate, reply to it.")
+      logger.debug("[Leader state] Receive a RequestVotes message from another candidate, reply to it.")
       handleRequestVotes(message, sender(), "candidate")
 
     case Terminated(externalActor) =>
@@ -173,6 +192,9 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         // We trigger a kill of the current actor, to notify easily the other nodes.
         self ! Kill
       }
+
+    case RequestVotesTimeoutCheck =>
+      // Nothing to do
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -189,11 +211,14 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       if(message.termNumber > electionService.termNumber) {
         if(contextType == "leader" || contextType == "candidate") {
           logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger term, switch to follower.")
+          parent.get.actorRef ! IAmFollower
           context.become(follower)
         }
       }
       electionService.increaseTermNumber(Option(message.termNumber))
       electionService.lastLeader = electionService.leaderFromPings
+    } else {
+      logger.warn(s"[$contextType state] Received Ping message: $message, but the sender is not in the config, we do not accept it")
     }
   }
 

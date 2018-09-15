@@ -112,6 +112,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * @param actorRef
     */
   def watchJvm(jvmId: String, actorRef: ActorRef): Unit = {
+    logger.debug(s"Start to watch $jvmId / $actorRef. Current topology: $jvmActorRefs")
     jvmActorRefs.get(jvmId) match {
       case None =>
         // The watcher could fail if it is not available anymore
@@ -131,6 +132,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * Remove the watching of a jvm, typically used when we received a Terminated message
     */
   def unwatchJvm(actorRef: ActorRef): Unit = {
+    logger.debug(s"Unwatch $actorRef")
     jvmIdForActorRef(actorRef) match {
       case Some(res) => jvmActorRefs = jvmActorRefs.filter(_._1 != res)
       case None => logger.error(s"Trying to unwatch a jvm ($actorRef) already not watched anymore...")
@@ -145,7 +147,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Quite simple to contact it
           logger.debug(s"Send ping to reachable ElectionNode: $electionNode")
-          res ! Ping(context.self, lastLeader, _termNumber)
+          res.tell(Ping(context.self, lastLeader, _termNumber), context.self)
         case None => // Need to resolve the actor path. It might not exist, we are not sure
           logger.debug(s"Do not send ping to previously unreachable ElectionNode: $electionNode")
       }
@@ -158,16 +160,17 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         case Some(res) => // Nothing to do here
         case None => // Need to resolve the actor path. It might not exist, we are not sure
           logger.debug(s"Send ping to previously unreachable ElectionNode: $electionNode")
-          sendPingToUnreachableNode(electionNode, _termNumber)
+          val ping = Ping(context.self, lastLeader, _termNumber)
+          sendMessageToUnreachableNode(electionNode, ping)
       }
     })
   }
 
   /**
-    * Try to send a ping to an unreachable node. To avoid locking the system, this is asynchronous.
+    * Try to send a message to an unreachable node. To avoid locking the system, this is asynchronous.
     * @param electionNode
     */
-  private def sendPingToUnreachableNode(electionNode: ElectionNode, termNumber: Long): Future[Try[Unit]] = Future {
+  private def sendMessageToUnreachableNode(electionNode: ElectionNode, message: RemoteMessage): Future[Try[Unit]] = Future {
     Try {
       val remoteActorRef: ActorRef = try {
         Await.result(context.actorSelection(electionNode.akkaUri).resolveOne(configurationService.timeoutUnreachableNode).recover {
@@ -190,7 +193,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       }
 
       if(remoteActorRef != null) {
-        remoteActorRef ! Ping(context.self, lastLeader, termNumber)
+        remoteActorRef.tell(message, context.self)
       }
     }
   }
@@ -200,19 +203,18 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * it, the current node will be elected.
     */
   def sendRequestVotes(): Unit = {
-    if(!enoughReachableNodes) {
-      throw new Exception("ElectionSeeds must only be sent if we have enough reachable nodes!")
-    }
-
     // Generate an election seed if we don't have one yet.
     generateElectionSeed()
 
+    logger.debug(s"Election nodes: ${configurationService.electionNodes}")
     configurationService.electionNodes.foreach(electionNode => {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Quite simple to contact it
-          logger.debug(s"Send ElectionSeed (${_lastRequestVotes.get}) to reachable ElectionNode: $electionNode")
-          res ! _lastRequestVotes.get
-        case None => // Unreachabled node, we do nothing.
+          logger.debug(s"Send RequestVotes (${_lastRequestVotes.get}) to reachable ElectionNode: $electionNode")
+          res.tell(_lastRequestVotes.get, context.self)
+        case None => // Unreachabled node, we still try to send the message
+          logger.warn(s"Send RequestVotes (${_lastRequestVotes.get}) to unreachable ElectionNode: $electionNode")
+          sendMessageToUnreachableNode(electionNode, _lastRequestVotes.get)
       }
     })
   }
@@ -342,10 +344,10 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
-    * Indicate if we have a majority of nodes running
+    * Indicate if we have a majority of nodes running.
     */
   def enoughReachableNodes: Boolean = {
-    jvmActorRefs.values.size > configurationService.electionNodes.length / 2f
+    jvmActorRefs.values.size >= nodesForMajority
   }
 
   /**
@@ -375,19 +377,17 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * Return the actor ref for a given ElectionNode, if it exists.
     */
   def actorRefForElectionNode(electionNode: ElectionNode): Option[ActorRef] = {
-    jvmActorRefs.find(_._2.toString() == electionNode.akkaUri) match {
-      case Some(res) => Option(res._2)
-      case None => None
-    }
+    jvmActorRefs.get(electionNode.jvmId)
   }
 
   /**
     * We only allow messages from machines with an ip / hostname in the configuration
     */
   def actorRefInConfig(actorRef: ActorRef): Boolean = {
+    val remotePath = Tools.remoteActorPath(actorRef)
     val isInConfig = configurationService.electionNodes.exists(electionNode => {
-      logger.debug(s"Comparing election node with actor ref: ${electionNode.akkaUri} vs ${actorRef.path.toString}")
-      electionNode.akkaUri == actorRef.path.toString
+      logger.debug(s"Comparing election node with actor ref: ${electionNode.akkaUri} vs ${remotePath}")
+      electionNode.akkaUri == remotePath
     })
 
     if(!isInConfig) {

@@ -5,7 +5,7 @@ import org.joda.time.{DateTime, DateTimeZone}
 
 class RemoteMessage(actorRef: ActorRef) {
   // Id that we remain the same even if the jvm restart
-  def jvmId: String = actorRef.toString().split("/user/").head
+  def jvmId: String = akka.serialization.Serialization.serializedActorPath(actorRef).split("/user/").head.replace(".tcp","").replace(".udp","")
   val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
   override def toString: String = s"RemoteMessage: $actorRef"
@@ -59,6 +59,18 @@ case class RequestVotesReplyWrapper(requestVotesReply: RequestVotesReply){
 }
 
 /**
+  * Message from the internal Election to the external actor using it
+  */
+case object IAmLeader
+case object IAmFollower
+
+/**
+  * The parent actor of the ElectionActor. We cannot simply use the context.parent as we have two different actor systems.
+  * @param actorRef
+  */
+case class IAmTheParent(actorRef: ActorRef)
+
+/**
   * Internal messages
   */
 case object BecomeCandidate
@@ -85,3 +97,4 @@ case object DiscoverNodes
   */
 case object AttemptElection
 
+case object RequestVotesTimeoutCheck

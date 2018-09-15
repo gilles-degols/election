@@ -5,6 +5,7 @@ import java.io.File
 
 import com.google.inject.Inject
 import com.typesafe.config.{Config, ConfigFactory}
+import org.slf4j.LoggerFactory
 
 import collection.JavaConverters._
 import scala.concurrent.duration._
@@ -27,7 +28,9 @@ case class ElectionNode(rawPath: String) {
   /**
     * URI to connect to the akka system on the election node.
     */
-  val akkaUri: String = s"akka://${ConfigurationService.ElectionSystemName}@$hostname:$port/user/${ConfigurationService.ElectionActorName}"
+  val akkaUri: String = s"akka.tcp://${ConfigurationService.ElectionSystemName}@$hostname:$port/user/${ConfigurationService.ElectionActorName}"
+
+  def jvmId: String = akkaUri.toString().replace(".tcp","").split("/user/").head
 
   override def toString: String = s"ElectionNode: $akkaUri"
 }
@@ -56,6 +59,8 @@ object ConfigurationService {
   * Created by Gilles.Degols on 03-09-18.
   */
 class ConfigurationService @Inject()(config: Config) {
+  private val logger = LoggerFactory.getLogger(getClass)
+
   lazy val fallbackConfig: Config = {
     val fileInSubproject = new File("../election/src/main/resources/application.conf")
     val fileInProject = new File("main/resources/application.conf")
@@ -69,9 +74,17 @@ class ConfigurationService @Inject()(config: Config) {
 
   /**
     * List of nodes we have to watch / monitor. Those are needed to know if we have to watch 3 of them, or more, and to be able
-    * to contact them. Try to not exceed 5.
+    * to contact them. Try to not exceed 5. If none are given, localhost is used.
     */
-  val electionNodes: List[ElectionNode] = getStringList("election.nodes").map(node => ElectionNode(node))
+  val electionNodes: List[ElectionNode] = {
+    val rawNodes = getStringList("election.nodes")
+    if(rawNodes.isEmpty) {
+      logger.warn("No election node in the configuration, use 127.0.0.1 with the default port.")
+      List(ElectionNode(s"127.0.0.1:${ConfigurationService.DefaultPort}"))
+    } else {
+      rawNodes.map(node => ElectionNode(node))
+    }
+  }
 
   /**
     * How much time should we wait to reschedule a DiscoverNodes and send ping ? A low value (1 second) is recommended.

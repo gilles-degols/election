@@ -1,5 +1,6 @@
 package net.degols.filesgate.libs.election
 
+import akka.actor.ActorRef
 import org.joda.time.{DateTime, DateTimeZone}
 
 /**
@@ -7,4 +8,12 @@ import org.joda.time.{DateTime, DateTimeZone}
   */
 object Tools {
   def datetime(): DateTime = new DateTime().withZone(DateTimeZone.UTC)
+
+  /**
+    * Return the full path to a given actor ref
+    * @param actorRef
+    */
+  def remoteActorPath(actorRef: ActorRef): String = akka.serialization.Serialization.serializedActorPath(actorRef).split("#").head
+
+  def jvmIdFromActorRef(actorRef: ActorRef): String = remoteActorPath(actorRef).replace(".tcp","").replace(".udp","")
 }
