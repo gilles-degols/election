@@ -3,9 +3,9 @@ package net.degols.filesgate.libs.election
 import akka.actor.ActorRef
 import org.joda.time.{DateTime, DateTimeZone}
 
-class RemoteMessage(actorRef: ActorRef) {
+class RemoteMessage(actorRef: ActorRef) extends Serializable{
   // Id that we remain the same even if the jvm restart
-  def jvmId: String = akka.serialization.Serialization.serializedActorPath(actorRef).split("/user/").head.replace(".tcp","").replace(".udp","")
+  val jvmId: String = akka.serialization.Serialization.serializedActorPath(actorRef).split("/user/").head.replace(".tcp","").replace(".udp","")
   val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
   override def toString: String = s"RemoteMessage: $actorRef"

@@ -18,8 +18,7 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   // We use the ActorSystem
   val threadPool: ExecutorService = Executors.newFixedThreadPool(1)
   implicit val executionContext: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(threadPool)
-  println(s"Current actor: ${self}")
-  val config: Config = configurationService.fallbackConfig.getConfig("election")
+  val config: Config = configurationService.electionConfig
   val actorSystem = ActorSystem(ConfigurationService.ElectionSystemName, config)
   val election: ActorRef = actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)
   election ! IAmTheParent(self)

@@ -58,10 +58,22 @@ object ConfigurationService {
 /**
   * Created by Gilles.Degols on 03-09-18.
   */
-class ConfigurationService @Inject()(config: Config) {
+class ConfigurationService @Inject()(defaultConfig: Config) {
   private val logger = LoggerFactory.getLogger(getClass)
+  /**
+    * If the library is loaded directly as a subproject, the Config of the subproject overrides the configuration of the main
+    * project by default, and we want the opposite.
+    */
+  private lazy val projectConfig: Config = {
+    val projectFile = new File(pathToProjectFile)
+    ConfigFactory.load(ConfigFactory.parseFile(projectFile))
+  }
 
-  lazy val fallbackConfig: Config = {
+  private val pathToProjectFile: String = {
+    Try{ConfigFactory.systemProperties().getString("config.resource")}.getOrElse("conf/application.conf")
+  }
+
+  private lazy val fallbackConfig: Config = {
     val fileInSubproject = new File("../election/src/main/resources/application.conf")
     val fileInProject = new File("main/resources/application.conf")
     if (fileInSubproject.exists()) {
@@ -70,7 +82,13 @@ class ConfigurationService @Inject()(config: Config) {
       ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
     }
   }
+  val config = projectConfig.withFallback(fallbackConfig)
 
+  /**
+    * Configuration for the election system. We merge multiple configuration files: One embedded, the other one from the project
+    * using the election library
+    */
+  val electionConfig: Config = config.getConfig("election")
 
   /**
     * List of nodes we have to watch / monitor. Those are needed to know if we have to watch 3 of them, or more, and to be able
@@ -91,40 +109,36 @@ class ConfigurationService @Inject()(config: Config) {
     * Ping and discovery is the same code.
     * This value must be bigger than the timeoutUnreachableNode.
     */
-  val discoverNodesFrequency: FiniteDuration = getInt("election.discover-nodes-frequency-ms") millis
+  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-ms") millis
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = getInt("election.timeout-unreachable-node-ms") millis
+  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-ms") millis
 
   /**
     * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
     * the term if we are already in this mode)
     */
-  val heartbeatCheckFrequency: FiniteDuration = getInt("election.heartbeat-check-frequency-ms") millis
+  val heartbeatCheckFrequency: FiniteDuration = config.getInt("election.heartbeat-check-frequency-ms") millis
 
   /**
     * We send Ping messages frequently
     */
-  val heartbeatFrequency: FiniteDuration = getInt("election.heartbeat-frequency-ms") millis
+  val heartbeatFrequency: FiniteDuration = config.getInt("election.heartbeat-frequency-ms") millis
 
   /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
     * time for all services to reply, and avoid the system being stuck.
     */
-  val electionAttemptMaxFrequency: FiniteDuration = getInt("election.election-attempt-max-frequency-ms") millis
-  val electionAttemptMinFrequency: FiniteDuration = getInt("election.election-attempt-min-frequency-ms") millis
+  val electionAttemptMaxFrequency: FiniteDuration = config.getInt("election.election-attempt-max-frequency-ms") millis
+  val electionAttemptMinFrequency: FiniteDuration = config.getInt("election.election-attempt-min-frequency-ms") millis
 
 
   /**
     * Methods to get data from the embedded configuration, or the project configuration (it can override it)
     */
-  private def getInt(path: String): Int = {
-    Try{config.getInt(path)}.getOrElse(fallbackConfig.getInt(path))
-  }
-
   private def getStringList(path: String): List[String] = {
-    Try{config.getStringList(path)}.getOrElse(fallbackConfig.getStringList(path)).asScala.toList
+    config.getStringList(path).asScala.toList
   }
 }

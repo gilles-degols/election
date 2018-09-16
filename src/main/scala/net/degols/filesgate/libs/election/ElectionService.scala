@@ -170,7 +170,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * Try to send a message to an unreachable node. To avoid locking the system, this is asynchronous.
     * @param electionNode
     */
-  private def sendMessageToUnreachableNode(electionNode: ElectionNode, message: RemoteMessage): Future[Try[Unit]] = Future {
+  private def sendMessageToUnreachableNode(electionNode: ElectionNode, message: Any): Future[Try[Unit]] = Future {
     Try {
       val remoteActorRef: ActorRef = try {
         Await.result(context.actorSelection(electionNode.akkaUri).resolveOne(configurationService.timeoutUnreachableNode).recover {
@@ -178,8 +178,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
             logger.warn("Got a TimeoutException while trying to resolve the actorRef of an ElectionNode.")
             null
           case x: Exception =>
-            logger.warn("Got a generic Exception while trying to resolve the actorRef of an ElectionNode.")
-            x.printStackTrace()
+            logger.warn(s"Got a generic Exception while trying to resolve the actorRef of an ElectionNode: ${x.getMessage}.")
+            //x.printStackTrace()
             null
         }, configurationService.timeoutUnreachableNode)
       } catch {
@@ -187,8 +187,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
           logger.warn("Got a TimeoutException while trying to resolve the actorRef of an ElectionNode.")
           null
         case x: Throwable =>
-          logger.warn("Got a generic Exception while trying to resolve the actorRef of an ElectionNode.")
-          x.printStackTrace()
+          logger.warn(s"Got a generic Exception while trying to resolve the actorRef of an ElectionNode: ${x.getMessage}.")
+          //x.printStackTrace()
           null
       }
 
@@ -214,6 +214,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
           res.tell(_lastRequestVotes.get, context.self)
         case None => // Unreachabled node, we still try to send the message
           logger.warn(s"Send RequestVotes (${_lastRequestVotes.get}) to unreachable ElectionNode: $electionNode")
+          //sendMessageToUnreachableNode(electionNode, s"SUPER STUFF -> ${_lastRequestVotes.get.jvmId}")
           sendMessageToUnreachableNode(electionNode, _lastRequestVotes.get)
       }
     })
@@ -244,6 +245,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Already replied to another RequestVotes (${_lastRepliedRequestVotes.get})."))
     } else if(_lastRequestVotes.isDefined && requestVotes.jvmId != currentJvmId && requestVotes.termNumber < _termNumber) {
       Right(RequestVotesRefused(context.self, requestVotes, _otherRequestVotes, s"Smaller term number than the one we have: ${requestVotes.termNumber} < ${_termNumber}"))
+    } else if(_lastRequestVotes.isDefined && requestVotes.jvmId == currentJvmId){
+      // We cannot reset our own term variables
+      Left(RequestVotesAccepted(context.self, requestVotes, _otherRequestVotes))
     } else {
       _termNumber = requestVotes.termNumber
       resetTermVariables()
@@ -281,7 +285,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
 
     // If enough replies, we might decide to become leader, if there is no timeout
     val acceptingJvmIds = _requestVotesReplies.filter(_.requestVotesReply.isInstanceOf[RequestVotesAccepted]).map(_.requestVotesReply.jvmId)
-    if(acceptingJvmIds.length >= nodesForMajority - 1) { // nodesForMajority, minus 1 for the current node
+    if(acceptingJvmIds.length >= nodesForMajority) { // nodesForMajority, minus 1 for the current node
       if(hasRequestVotesTimeout) {
         logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, but we cannot become primary as there is a timeout.")
         false
@@ -306,7 +310,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         false
       case Some(requestVotes) =>
         val maxDifference = configurationService.electionAttemptMaxFrequency.toMillis
-        requestVotes.creationDatetime.getMillis + maxDifference > Tools.datetime().getMillis
+        logger.debug(s"Checking request votes timeout: ${maxDifference} vs ${requestVotes.creationDatetime.getMillis + maxDifference} > ${Tools.datetime().getMillis}")
+        requestVotes.creationDatetime.getMillis + maxDifference < Tools.datetime().getMillis
     }
   }
 
@@ -361,7 +366,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   /**
     * Number of nodes we should have replies from to have a majority
     */
-  def nodesForMajority: Int = math.ceil(configurationService.electionNodes.length / 2f).toInt
+  def nodesForMajority: Int = math.floor(configurationService.electionNodes.length / 2f).toInt + 1
 
   /**
     * Try to find the jvm id for a given actor ref. Normally we should always have it.

@@ -240,6 +240,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
   private def scheduleNextTerm(): Unit = {
     // Random delay to start the RequestVotes, according to the Raft algorithm to avoid having too many split voting
+    logger.debug("Scheduling next term")
     val delay = configurationService.electionAttemptMaxFrequency.toMillis - configurationService.electionAttemptMinFrequency.toMillis
     val requestVotesDelay = configurationService.electionAttemptMinFrequency.toMillis + random.nextInt(delay.toInt)
     context.system.scheduler.scheduleOnce(requestVotesDelay millis, self, AttemptElection)
