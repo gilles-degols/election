@@ -62,8 +62,10 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       // If a new term is found, we will switch to follower state
       handlePingMessage(message, sender(), "candidate")
 
-    case SendPingMessages | DiscoverNodes =>
-      // In the candidate state we do not need to send Ping messages, nor discover the other nodes
+    case SendPingMessages =>
+      electionService.sendPingToKnownNodes()
+    case DiscoverNodes =>
+      electionService.sendPingToUnreachableNodes()
 
     case CheckPingMessages =>
       // In this case, we don't really need to check the ping timeout as we are not following anyone
@@ -85,6 +87,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       electionService.lastLeader match {
         case Some(res) =>
           logger.debug("[Candidate state] A leader is still known, we do not trigger a new election.")
+          context.become(follower)
         case None =>
           logger.info("[Candidate state] Triggering a new election.")
           electionService.sendRequestVotes()
@@ -95,6 +98,8 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       val becameLeader = electionService.becomeLeaderWithReplyFromElectionSeed(message)
       if(becameLeader) {
         context.become(leader)
+        electionService.lastLeader = Option(self)
+
         // We need to contact the other nodes directly, to inform them of their new leader.
         electionService.sendPingToKnownNodes()
         // We tell the parent actor that we become the leader
@@ -116,10 +121,13 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case message: Ping =>
       handlePingMessage(message, sender(), "follower")
 
-    case SendPingMessages | DiscoverNodes | RequestVotesTimeoutCheck =>
-      // In the follower state we do need to send Ping messages, nor discover the other nodes
-      // TODO: Maybe it would still be interesting to have the actorRef from every node to allow a faster (smoother?) election
-      // when we are in the candidate state?
+    case SendPingMessages =>
+      electionService.sendPingToKnownNodes()
+    case DiscoverNodes =>
+      electionService.sendPingToUnreachableNodes()
+
+    case RequestVotesTimeoutCheck =>
+      // Nothing to do
 
     case CheckPingMessages =>
       electionService.jvmIdForLeader() match {
@@ -180,7 +188,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
     case message: RequestVotes =>
       logger.debug("[Leader state] Receive a RequestVotes message from another candidate, reply to it.")
-      handleRequestVotes(message, sender(), "candidate")
+      handleRequestVotes(message, sender(), "leader")
 
     case Terminated(externalActor) =>
       val jvmId = electionService.jvmIdForActorRef(externalActor)
@@ -188,9 +196,10 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       electionService.unwatchJvm(externalActor)
 
       if(!electionService.enoughReachableNodes) {
-        logger.warn("[Leader state] Not enough reachable nodes, we cannot be leader anymore. Kill ourselves.")
-        // We trigger a kill of the current actor, to notify easily the other nodes.
-        self ! Kill
+        logger.warn("[Leader state] Not enough reachable nodes, we cannot be leader anymore. Switch to candidate.")
+        context.become(candidate)
+        electionService.lastLeader = None
+        parent.get.actorRef ! IAmFollower // Same info as candidate
       }
 
     case RequestVotesTimeoutCheck =>
@@ -208,22 +217,43 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       logger.info(s"[$contextType state] Received Ping message: $message")
       electionService.addJvmMessage(message)
       electionService.watchJvm(message.jvmId, message.actorRef)
-      if(message.termNumber > electionService.termNumber) {
+
+      // If we get the same term number, we should only accept the message if the actor is the same as we voted for. Normally we should simply try a new election.
+      // TODO: Investigate the implications, we could have a split
+      val acceptedTermNumber = electionService.lastRepliedRequestVotes match {
+        case Some(lastReplied) => message.termNumber == electionService.termNumber && message.actorRef == lastReplied.actorRef
+        case None => false
+      }
+      if(message.termNumber > electionService.termNumber || acceptedTermNumber) {
         if(contextType == "leader" || contextType == "candidate") {
-          logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger term, switch to follower.")
+          logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger or equal term, switch to follower.")
           parent.get.actorRef ! IAmFollower
           context.become(follower)
         }
       }
+
       electionService.increaseTermNumber(Option(message.termNumber))
-      electionService.lastLeader = electionService.leaderFromPings
+      // TODO: I don't think it's a good idea, this might lead to weird problems...
+      electionService.leaderFromPings match {
+        case Some(leaderFromPings) =>
+          logger.debug(s"[$contextType state] Set the leaderFromPings: ${electionService.leaderFromPings}")
+          electionService.lastLeader = electionService.leaderFromPings
+        case None =>
+      }
     } else {
       logger.warn(s"[$contextType state] Received Ping message: $message, but the sender is not in the config, we do not accept it")
     }
   }
 
+  // TODO -> Y'a moyen d'avoir 2 leaders en même temps. Faudrait voir pourquoi il peut avoir 2 RequestVotes rapidement et quand
+  // même devenir leader de chaque côté. Inclure l'heure exact dans les logs serait intéressant.
+
+
   private def handleRequestVotes(message: RequestVotes, sender: ActorRef, contextType: String): Unit = {
     val reply = electionService.replyToRequestVotes(message)
+    electionService.addJvmMessage(message)
+    electionService.watchJvm(message.jvmId, message.actorRef)
+
     if(reply.isLeft) {
       logger.debug(s"[$contextType state] Accepting the external RequestVotes.")
       sender ! reply.left.get

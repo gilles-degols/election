@@ -9,6 +9,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future, TimeoutException}
 import scala.util.{Failure, Success, Try, Random}
+import scala.concurrent.duration._
 
 /**
   * Election system is using the Raft algorithm: https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf
@@ -66,6 +67,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
 
   def termNumber: Long = _termNumber
 
+  def lastRepliedRequestVotes: Option[RequestVotes] = _lastRepliedRequestVotes
+
   /**
     * Every time we receive a jvm message, we add it to the history. The watcher is node on another level.
     * @param remoteMessage
@@ -83,16 +86,29 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
-    * Retrieve the leader from the Ping messages
+    * Retrieve the leader from the Ping messages. We only accept a leader from a ping of the leader itself
     */
   def leaderFromPings: Option[ActorRef] = {
     if(enoughReachableNodes) {
       val distinctLeaders = jvmActorRefs.flatMap(jvm => {
-        _jvm_histories(jvm._1).lastPingWrapper()
-      }).map(_.remoteMessage.asInstanceOf[Ping]).map(_.actorRef).toList.distinct
+        _jvm_histories.get(jvm._1) match {
+          case Some(jvmHistory) => jvmHistory.lastPingWrapper()
+          case None => None
+        }
+      }).map(_.remoteMessage.asInstanceOf[Ping])
+        .filter(ping => ping.leaderActorRef.isDefined && ping.leaderActorRef.get == ping.actorRef) // Only keep the leader from the leader itself
+        .map(_.leaderActorRef.get).toList.distinct
 
       if(distinctLeaders.isEmpty) {
         logger.debug("No leader received from external Ping messages, wait for the election.")
+        val tmp = jvmActorRefs.flatMap(jvm => {
+          _jvm_histories.get(jvm._1) match
+          {
+            case Some(jvmHistory) => jvmHistory.lastPingWrapper()
+            case None => None
+          }
+        })
+
         None
       } else if(distinctLeaders.length == 1){
         logger.debug(s"Got a leader from the external nodes: ${distinctLeaders.head}")
@@ -112,9 +128,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * @param actorRef
     */
   def watchJvm(jvmId: String, actorRef: ActorRef): Unit = {
-    logger.debug(s"Start to watch $jvmId / $actorRef. Current topology: $jvmActorRefs")
     jvmActorRefs.get(jvmId) match {
       case None =>
+        logger.debug(s"Start to watch $jvmId / $actorRef. Current topology: $jvmActorRefs")
         // The watcher could fail if it is not available anymore
         Try{context.watch(actorRef)} match {
           case Success(res) =>
@@ -134,7 +150,10 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def unwatchJvm(actorRef: ActorRef): Unit = {
     logger.debug(s"Unwatch $actorRef")
     jvmIdForActorRef(actorRef) match {
-      case Some(res) => jvmActorRefs = jvmActorRefs.filter(_._1 != res)
+      case Some(res) => {
+        logger.debug(s"===> Unwatch: ${jvmActorRefs.map(_._1)} / $res vs ${jvmActorRefs.filter(_._1 != res)}")
+        jvmActorRefs = jvmActorRefs.filter(_._1 != res)
+      }
       case None => logger.error(s"Trying to unwatch a jvm ($actorRef) already not watched anymore...")
     }
   }
@@ -193,7 +212,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       }
 
       if(remoteActorRef != null) {
+        logger.debug(s"Got an actorRef from an unreachable node ($electionNode), send message: $message")
         remoteActorRef.tell(message, context.self)
+        //watchJvm(Tools.jvmIdFromActorRef(remoteActorRef), remoteActorRef)
       }
     }
   }
@@ -214,8 +235,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
           res.tell(_lastRequestVotes.get, context.self)
         case None => // Unreachabled node, we still try to send the message
           logger.warn(s"Send RequestVotes (${_lastRequestVotes.get}) to unreachable ElectionNode: $electionNode")
-          //sendMessageToUnreachableNode(electionNode, s"SUPER STUFF -> ${_lastRequestVotes.get.jvmId}")
-          sendMessageToUnreachableNode(electionNode, _lastRequestVotes.get)
+          // TODO: Better solution than a Await
+          Try{Await.result(sendMessageToUnreachableNode(electionNode, _lastRequestVotes.get), 1 second)}
       }
     })
   }
@@ -251,6 +272,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     } else {
       _termNumber = requestVotes.termNumber
       resetTermVariables()
+      _lastRepliedRequestVotes = Option(requestVotes)
       Left(RequestVotesAccepted(context.self, requestVotes, _otherRequestVotes))
     }
   }
@@ -290,7 +312,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, but we cannot become primary as there is a timeout.")
         false
       } else {
-        logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages, we can become primary.")
+        logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages ($acceptingJvmIds), we can become primary. Term is ${termNumber}.")
         lastLeader = Option(context.self)
         true
       }
@@ -332,7 +354,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
             logger.warn("No ping received from any other nodes, nothing to do.")
             false
           case Some(wrapper) =>
-            wrapper.creationDatetime.getMillis + maxDifference > Tools.datetime().getMillis
+            // We allow a bit more than the maxDifference, as there will always be some delay
+            wrapper.creationDatetime.getMillis + 5*maxDifference < Tools.datetime().getMillis
         }
     }
   }
@@ -391,7 +414,6 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def actorRefInConfig(actorRef: ActorRef): Boolean = {
     val remotePath = Tools.remoteActorPath(actorRef)
     val isInConfig = configurationService.electionNodes.exists(electionNode => {
-      logger.debug(s"Comparing election node with actor ref: ${electionNode.akkaUri} vs ${remotePath}")
       electionNode.akkaUri == remotePath
     })
 
