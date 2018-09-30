@@ -68,6 +68,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def termNumber: Long = _termNumber
 
   def lastRepliedRequestVotes: Option[RequestVotes] = _lastRepliedRequestVotes
+  def resetLastRepliedRequestVotes(): Unit = _lastRepliedRequestVotes = None
 
   /**
     * Every time we receive a jvm message, we add it to the history. The watcher is node on another level.
@@ -86,7 +87,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
-    * Retrieve the leader from the Ping messages. We only accept a leader from a ping of the leader itself
+    * Retrieve the leader from the Ping messages. We only accept a leader from a ping of the leader itself, and only
+    * if the last ping message is recent enough
     */
   def leaderFromPings: Option[ActorRef] = {
     if(enoughReachableNodes) {
@@ -95,6 +97,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
           case Some(jvmHistory) => jvmHistory.lastPingWrapper()
           case None => None
         }
+      }).filter(ping => {
+        // Only keep ping if recent enough
+        ping.creationDatetime.getMillis + 5* configurationService.heartbeatFrequency.toMillis >= Tools.datetime().getMillis
       }).map(_.remoteMessage.asInstanceOf[Ping])
         .filter(ping => ping.leaderActorRef.isDefined && ping.leaderActorRef.get == ping.actorRef) // Only keep the leader from the leader itself
         .map(_.leaderActorRef.get).toList.distinct
@@ -212,7 +217,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       }
 
       if(remoteActorRef != null) {
-        logger.debug(s"Got an actorRef from an unreachable node ($electionNode), send message: $message")
+        logger.debug(s"Send message $message to an actorRef from an unreachable node: $electionNode.")
         remoteActorRef.tell(message, context.self)
         //watchJvm(Tools.jvmIdFromActorRef(remoteActorRef), remoteActorRef)
       }
@@ -295,7 +300,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     } else if(requestVotesResult.requestVotes.termNumber != _termNumber) {
       logger.debug(s"Got result for an obsolete RequestVotes message: ${requestVotesResult.requestVotes.termNumber} != ${_termNumber}. We cannot accept this message.")
     } else if(requestVotesResult.isInstanceOf[RequestVotesRefused]) {
-      logger.debug("Got one rejection for the RequestVotes.")
+      logger.debug(s"Got one rejection for the RequestVotes: ${requestVotesResult.asInstanceOf[RequestVotesRefused].reason}.")
       // Even if we get one rejection, we should accept other messages, as we only need the majority of nodes.
       _requestVotesReplies = _requestVotesReplies :+ RequestVotesReplyWrapper(requestVotesResult)
     } else if(requestVotesResult.isInstanceOf[RequestVotesAccepted]) {

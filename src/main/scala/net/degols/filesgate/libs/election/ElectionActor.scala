@@ -106,6 +106,10 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         logger.debug(s"[Candidate state] Warning the parent actor of the new state: ${context.parent}")
         parent.get.actorRef ! IAmLeader
       }
+    case Terminated(externalActor) =>
+      val jvmId = electionService.jvmIdForActorRef(externalActor)
+      logger.info(s"[Follower state] Got a Terminated message from external actor: $externalActor. Jvm Id: $jvmId")
+      electionService.unwatchJvm(externalActor)
 
     case x =>
       if(electionService.actorRefInConfig(sender())) {
@@ -218,27 +222,39 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       electionService.addJvmMessage(message)
       electionService.watchJvm(message.jvmId, message.actorRef)
 
-      // If we get the same term number, we should only accept the message if the actor is the same as we voted for. Normally we should simply try a new election.
+      // If we get the same term number, we should only accept the message if the actor is the same as we voted for and if it's different than ourselves. Normally we should simply try a new election.
       // TODO: Investigate the implications, we could have a split
+      val currentJvmId = electionService.jvmIdForActorRef(self)
       val acceptedTermNumber = electionService.lastRepliedRequestVotes match {
-        case Some(lastReplied) => message.termNumber == electionService.termNumber && message.actorRef == lastReplied.actorRef
+        case Some(lastReplied) =>
+          logger.debug(s"Compare jvm id: ${message.jvmId} vs ${currentJvmId.get}")
+          message.termNumber == electionService.termNumber && message.actorRef == lastReplied.actorRef && message.jvmId != currentJvmId.get
         case None => false
       }
       if(message.termNumber > electionService.termNumber || acceptedTermNumber) {
         if(contextType == "leader" || contextType == "candidate") {
-          logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger or equal term, switch to follower.")
+          logger.debug(s"[$contextType state] $contextType has received a Ping with a bigger or equal term, switch to follower (${message.termNumber} / ${message.jvmId}, ${electionService.termNumber} / ${currentJvmId}).")
+          electionService.lastLeader = None
           parent.get.actorRef ! IAmFollower
           context.become(follower)
         }
       }
 
       electionService.increaseTermNumber(Option(message.termNumber))
-      // TODO: I don't think it's a good idea, this might lead to weird problems...
-      electionService.leaderFromPings match {
-        case Some(leaderFromPings) =>
-          logger.debug(s"[$contextType state] Set the leaderFromPings: ${electionService.leaderFromPings}")
-          electionService.lastLeader = electionService.leaderFromPings
-        case None =>
+      if(contextType != "leader") {
+        // To avoid concurrency problems (or rather, delay problems), we only set the leader from ping if we are not already the one
+        electionService.leaderFromPings match {
+          case Some(leaderFromPings) =>
+            if(electionService.lastLeader.isEmpty || leaderFromPings.toString() != electionService.lastLeader.get.toString) {
+              logger.debug(s"[$contextType state] Set the leaderFromPings: ${electionService.leaderFromPings} (vs ${electionService.lastLeader})")
+              electionService.lastLeader = electionService.leaderFromPings
+            }
+          case None =>
+            if(electionService.lastLeader.isDefined) {
+              logger.warn(s"[$contextType state] Lost leader from pings...")
+              electionService.lastLeader = None
+            }
+        }
       }
     } else {
       logger.warn(s"[$contextType state] Received Ping message: $message, but the sender is not in the config, we do not accept it")
@@ -270,9 +286,10 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
 
   private def scheduleNextTerm(): Unit = {
     // Random delay to start the RequestVotes, according to the Raft algorithm to avoid having too many split voting
-    logger.debug("Scheduling next term")
+    electionService.resetLastRepliedRequestVotes()
     val delay = configurationService.electionAttemptMaxFrequency.toMillis - configurationService.electionAttemptMinFrequency.toMillis
     val requestVotesDelay = configurationService.electionAttemptMinFrequency.toMillis + random.nextInt(delay.toInt)
+    logger.debug(s"Scheduling next term in ${requestVotesDelay} millis")
     context.system.scheduler.scheduleOnce(requestVotesDelay millis, self, AttemptElection)
   }
 }
