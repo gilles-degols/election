@@ -49,6 +49,11 @@ object ConfigurationService {
   val ElectionActorName: String = "ElectionActor"
 
   /**
+    * Default actor name to look for the leader (for the WatcherActor not taking part in the election)
+    */
+  val WatcherActorName: String = "WatcherActor"
+
+  /**
     * Default port for the election nodes if those weren't given. 2181 is the one used by zookeeper, and we want to not
     * use it, so we will arbitrarily do "+1"
     */

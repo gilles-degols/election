@@ -24,6 +24,14 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     electionService.context = context
   }
 
+  override def aroundReceive(receive: Receive, msg: Any): Unit = {
+    msg match {
+      case x: WhoIsTheLeader => // Message sent by a WatcherActor to an ElectionActor to know who's in charge.
+        sender() ! TheLeaderIs(electionService.lastLeader)
+      case x => receive(x)
+    }
+  }
+
   /**
     * The receive state has almost nothing to do, it should directly switch to the waiting state as soon as it received
     * the parent information.

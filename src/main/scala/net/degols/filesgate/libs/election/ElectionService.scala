@@ -191,6 +191,23 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
+    * Specific method for the WatcherActor (only!), when it wants to find the current leader. For that, we select
+    * one random node.
+    */
+  def sendWhoIsTheLeader(): Unit = {
+    val message = WhoIsTheLeader()
+    val electionNode = Random.shuffle(configurationService.electionNodes).head
+    actorRefForElectionNode(electionNode) match {
+      case Some(res) => // Quite simple to contact it
+        logger.debug(s"Send WhoIsTheLeader to reachable ElectionNode: $electionNode")
+        res.tell(Ping(context.self, lastLeader, _termNumber), context.self)
+      case None => // Need to resolve the actor path. It might not exist, we are not sure
+        logger.debug(s"Send WhoIsTheLeader to previously unreachable ElectionNode: $electionNode")
+        sendMessageToUnreachableNode(electionNode, message)
+    }
+  }
+
+  /**
     * Try to send a message to an unreachable node. To avoid locking the system, this is asynchronous.
     * @param electionNode
     */
@@ -219,7 +236,6 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       if(remoteActorRef != null) {
         logger.debug(s"Send message $message to an actorRef from an unreachable node: $electionNode.")
         remoteActorRef.tell(message, context.self)
-        //watchJvm(Tools.jvmIdFromActorRef(remoteActorRef), remoteActorRef)
       }
     }
   }
