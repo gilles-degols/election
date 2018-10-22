@@ -18,6 +18,8 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
   private val random = new Random(System.currentTimeMillis())
   private var parent: Option[IAmTheParent] = _
 
+  private var _lastLeaderReception: Long = 0L
+
   override def preStart(): Unit = {
     super.preStart()
     electionService.context = context
@@ -49,8 +51,17 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
       electionService.unwatchJvm(externalActor)
     case CheckWhoIsTheLeader =>
       electionService.sendWhoIsTheLeader()
+
+      // If we never received any message back, we still need to inform the parent that we have no leader anymore
+      val lastReceptionDiff = Tools.datetime().getMillis - _lastLeaderReception
+      if(_lastLeaderReception > 0 && lastReceptionDiff >= configurationService.heartbeatFrequency.toMillis * 20L) {
+        logger.warn("[Watcher state] No TheLeaderIs received from any ElectionActor, consider that we have no leader anymore.")
+        parent.get.actorRef ! TheLeaderIs(None)
+      }
+
     case leader: TheLeaderIs =>
       logger.info("[Watcher state] Got TheLeaderIs message, send it to the parent")
+      _lastLeaderReception = Tools.datetime().getMillis
       parent.get.actorRef ! leader
     case x =>
       logger.warn(s"[Watcher state] Unknown message received in the ElectionActor: $x")
