@@ -193,7 +193,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   /**
     * Specific method for the WatcherActor (only!), when it wants to find the current leader. For that, we select
     * one random node.
-    * TODO: We should rather try to contact a majority of nodes to find the leader
+    * TODO: We should rather try to contact a majority of nodes to find the leader. If we don't have a majority we must stop the instance
     */
   def sendWhoIsTheLeader(): Unit = {
     val message = WhoIsTheLeader()
