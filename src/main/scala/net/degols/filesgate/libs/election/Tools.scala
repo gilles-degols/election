@@ -16,4 +16,6 @@ object Tools {
   def remoteActorPath(actorRef: ActorRef): String = akka.serialization.Serialization.serializedActorPath(actorRef).split("#").head
 
   def jvmIdFromActorRef(actorRef: ActorRef): String = remoteActorPath(actorRef).replace(".tcp","").replace(".udp","")
+
+  def stacktraceToString(st: Throwable): String = ""
 }
