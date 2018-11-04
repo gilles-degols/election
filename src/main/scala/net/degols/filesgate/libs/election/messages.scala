@@ -7,7 +7,7 @@ import org.joda.time.{DateTime, DateTimeZone}
 class SimpleRemoteMessage extends Serializable{
   val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
-  override def toString: String = s"SimpleRemoteMessage: $cre"
+  override def toString: String = s"SimpleRemoteMessage: $creationDatetime"
 }
 
 @SerialVersionUID(1L)
