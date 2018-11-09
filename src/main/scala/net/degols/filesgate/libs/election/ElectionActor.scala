@@ -60,7 +60,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
         self, CheckPingMessages)
 
     case x =>
-      if(electionService.actorRefInConfig(sender())) {
+      if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Receive state] Unknown message received in the ElectionActor: $x")
       }
   }
@@ -120,7 +120,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       electionService.unwatchJvm(externalActor)
 
     case x =>
-      if(electionService.actorRefInConfig(sender())) {
+      if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Candidate state] Unknown message received in the ElectionActor: $x")
       }
   }
@@ -179,7 +179,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       handleRequestVotes(message, sender(), "follower")
 
     case x =>
-      if(electionService.actorRefInConfig(sender())) {
+      if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Follower state] Unknown message received in the ElectionActor: $x")
       }
   }
@@ -218,14 +218,14 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
       // Nothing to do
 
     case x =>
-      if(electionService.actorRefInConfig(sender())) {
+      if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Leader state] Unknown message received in the ElectionActor: $x")
       }
   }
 
 
   private def handlePingMessage(message: Ping, sender: ActorRef, contextType: String): Unit = {
-    if(electionService.actorRefInConfig(sender)) {
+    if(electionService.actorRefInConfig(sender, message)) {
       logger.info(s"[$contextType state] Received Ping message: $message")
       electionService.addJvmMessage(message)
       electionService.watchJvm(message.jvmId, message.actorRef)

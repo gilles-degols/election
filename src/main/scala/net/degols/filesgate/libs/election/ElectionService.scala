@@ -433,14 +433,25 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   /**
     * We only allow messages from machines with an ip / hostname in the configuration
     */
-  def actorRefInConfig(actorRef: ActorRef): Boolean = {
-    val remotePath = Tools.remoteActorPath(actorRef)
+  def actorRefInConfig(actorRef: ActorRef, message: Any = null): Boolean = {
+    var remotePath = Tools.remoteActorPath(actorRef)
+
+    // The remote actor path is not always valid (it does not contain the hostname + port)
+    if (!remotePath.contains("@")) { // Valid: akka.tcp://ElectionSystem@127.0.0.1:2182/user/ElectionActor, invalid: akka://application/user/worker
+      remotePath = s"akka.tcp://${ConfigurationService.ElectionSystemName}@${configurationService.akkaElectionRemoteHostname}:${configurationService.akkaElectionRemotePort}/user/${ConfigurationService.ElectionActorName}"
+    }
+
     val isInConfig = configurationService.electionNodes.exists(electionNode => {
       electionNode.akkaUri == remotePath
     })
 
+
     if(!isInConfig) {
-      logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} not in the configured nodes: ${configurationService.electionNodes}")
+      if(message == null) {
+        logger.warn(s"Given actorRef (${actorRef.path.toString} / $remotePath) is not in the configured nodes: ${configurationService.electionNodes}.")
+      } else {
+        logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} / $remotePath not in the configured nodes: ${configurationService.electionNodes}. Message: $message")
+      }
     }
 
     isInConfig

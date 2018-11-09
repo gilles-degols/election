@@ -141,6 +141,15 @@ class ConfigurationService @Inject()(defaultConfig: Config) {
 
 
   /**
+    * It's difficult to get a remote actor path locally. Because of that, we still want to know the current hostname + port
+    */
+  val akkaLocalHostname: String = config.getString("akka.remote.netty.tcp.hostname")
+  val akkaLocalPort: Int = config.getInt("akka.remote.netty.tcp.port")
+
+  val akkaElectionRemoteHostname: String = config.getString("election.akka.remote.netty.tcp.hostname")
+  val akkaElectionRemotePort: Int = config.getInt("election.akka.remote.netty.tcp.port")
+
+  /**
     * Methods to get data from the embedded configuration, or the project configuration (it can override it)
     */
   private def getStringList(path: String): List[String] = {
