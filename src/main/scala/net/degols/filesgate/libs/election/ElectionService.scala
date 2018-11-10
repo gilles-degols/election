@@ -436,15 +436,14 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   def actorRefInConfig(actorRef: ActorRef, message: Any = null): Boolean = {
     var remotePath = Tools.remoteActorPath(actorRef)
 
-    // The remote actor path is not always valid (it does not contain the hostname + port)
+    // The remote actor path is not always valid (it does not contain the hostname + port) if there is a missing configuration
     if (!remotePath.contains("@")) { // Valid: akka.tcp://ElectionSystem@127.0.0.1:2182/user/ElectionActor, invalid: akka://application/user/worker
-      remotePath = s"akka.tcp://${ConfigurationService.ElectionSystemName}@${configurationService.akkaElectionRemoteHostname}:${configurationService.akkaElectionRemotePort}/user/${ConfigurationService.ElectionActorName}"
+      throw new Exception(s"Missing configuration to have a valid remote actor path for $actorRef.")
     }
 
     val isInConfig = configurationService.electionNodes.exists(electionNode => {
       electionNode.akkaUri == remotePath
     })
-
 
     if(!isInConfig) {
       if(message == null) {

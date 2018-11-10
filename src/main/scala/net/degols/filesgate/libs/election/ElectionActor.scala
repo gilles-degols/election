@@ -17,8 +17,6 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
   private val logger = LoggerFactory.getLogger(getClass)
   private val random = new Random(System.currentTimeMillis())
   private var parent: Option[IAmTheParent] = _
-  // TODO: Add actor to notify once a leader has been found. We also need to implement simple watchers of the election, not trying to
-  // become master, but still being warned if a leader changed.
 
   override def preStart(): Unit = {
     electionService.context = context
@@ -62,7 +60,9 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Receive state] Unknown message received in the ElectionActor: $x")
+        parent.get.actorRef ! x
       }
+
   }
 
   def candidate: Receive = { // Trying to be leader
@@ -122,6 +122,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Candidate state] Unknown message received in the ElectionActor: $x")
+        parent.get.actorRef ! x
       }
   }
 
@@ -181,6 +182,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Follower state] Unknown message received in the ElectionActor: $x")
+        parent.get.actorRef ! x
       }
   }
 
@@ -220,6 +222,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Leader state] Unknown message received in the ElectionActor: $x")
+        parent.get.actorRef ! x
       }
   }
 

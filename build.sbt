@@ -17,13 +17,10 @@ libraryDependencies ++= Seq(
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
   "com.typesafe.akka" %% "akka-stream" % akkaVersion,
-  "com.typesafe.akka" %% "akka-actor" % akkaVersion,
-  "com.typesafe.akka" %% "akka-stream-kafka" % "0.19"
+  "com.typesafe.akka" %% "akka-actor" % akkaVersion
 )
 
 libraryDependencies += "joda-time" % "joda-time" % "2.10"
-
-libraryDependencies += "commons-io" % "commons-io" % "2.4"
 
 // Akka Remoting
 libraryDependencies += "com.typesafe.akka" %% "akka-remote" % akkaVersion
