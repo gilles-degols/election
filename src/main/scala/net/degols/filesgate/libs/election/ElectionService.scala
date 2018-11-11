@@ -156,7 +156,6 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     logger.debug(s"Unwatch $actorRef")
     jvmIdForActorRef(actorRef) match {
       case Some(res) => {
-        logger.debug(s"===> Unwatch: ${jvmActorRefs.map(_._1)} / $res vs ${jvmActorRefs.filter(_._1 != res)}")
         jvmActorRefs = jvmActorRefs.filter(_._1 != res)
       }
       case None => logger.error(s"Trying to unwatch a jvm ($actorRef) already not watched anymore...")
@@ -431,10 +430,20 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   /**
+    * Indicate if the current process is an election node or just a watcher
+    * @return
+    */
+  def currentProcessIsElectionNode(): Boolean = {
+    configurationService.electionNodes.exists(electionNode => {
+      s"${electionNode.hostname}:${electionNode.port}" == s"${configurationService.akkaElectionRemoteHostname}:${configurationService.akkaElectionRemotePort}"
+    })
+  }
+
+  /**
     * We only allow messages from machines with an ip / hostname in the configuration
     */
-  def actorRefInConfig(actorRef: ActorRef, message: Any = null): Boolean = {
-    var remotePath = Tools.remoteActorPath(actorRef)
+  def actorRefInConfig(actorRef: ActorRef, message: Any): Boolean = {
+    val remotePath = Tools.remoteActorPath(actorRef)
 
     // The remote actor path is not always valid (it does not contain the hostname + port) if there is a missing configuration
     if (!remotePath.contains("@")) { // Valid: akka.tcp://ElectionSystem@127.0.0.1:2182/user/ElectionActor, invalid: akka://application/user/worker
@@ -446,11 +455,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     })
 
     if(!isInConfig) {
-      if(message == null) {
-        logger.warn(s"Given actorRef (${actorRef.path.toString} / $remotePath) is not in the configured nodes: ${configurationService.electionNodes}.")
-      } else {
-        logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} / $remotePath not in the configured nodes: ${configurationService.electionNodes}. Message: $message")
-      }
+      logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} / $remotePath not in the configured nodes: ${configurationService.electionNodes}. Message: $message")
     }
 
     isInConfig

@@ -21,12 +21,13 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   implicit val executionContext: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(threadPool)
   val config: Config = configurationService.electionConfig
 
-  val systemName: String = if(electionService.actorRefInConfig(self)) ConfigurationService.ElectionSystemName
-  else ConfigurationService.WatcherActorName
+  val systemName: String = if(electionService.currentProcessIsElectionNode()) ConfigurationService.ElectionSystemName
+  else ConfigurationService.WatcherSystemName
+
   val actorSystem: ActorSystem = ActorSystem(systemName, config)
 
   // Depending on the configuration, we take part in the election, or we simply watch it
-  val election: ActorRef = if(electionService.actorRefInConfig(self)) actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)
+  val election: ActorRef = if(electionService.currentProcessIsElectionNode()) actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)
   else actorSystem.actorOf(Props(classOf[WatcherActor], electionService, configurationService), ConfigurationService.ElectionActorName)
 
   election ! IAmTheParent(self)

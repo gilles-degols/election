@@ -58,6 +58,8 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
         logger.warn("[Watcher state] No TheLeaderIs received from any ElectionActor, consider that we have no leader anymore.")
         parent.get.actorRef ! TheLeaderIs(None)
       }
+    case x: WhoIsTheLeader =>
+      logger.error("[Watcher state] Got a WhoIsTheLeader in a WatcherActor. This message should never be sent to a Watcher, but to an ElectionActor...")
 
     case leader: TheLeaderIs =>
       logger.info("[Watcher state] Got TheLeaderIs message, send it to the parent")

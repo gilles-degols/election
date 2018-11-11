@@ -51,7 +51,7 @@ object ConfigurationService {
   /**
     * Default actor name to look for the leader (for the WatcherActor not taking part in the election)
     */
-  val WatcherActorName: String = "WatcherActor"
+  val WatcherSystemName: String = "WatcherSystem"
 
   /**
     * Default port for the election nodes if those weren't given. 2181 is the one used by zookeeper, and we want to not
@@ -63,7 +63,7 @@ object ConfigurationService {
 /**
   * Created by Gilles.Degols on 03-09-18.
   */
-class ConfigurationService @Inject()(defaultConfig: Config) {
+class ConfigurationService @Inject()(val defaultConfig: Config) {
   private val logger = LoggerFactory.getLogger(getClass)
   /**
     * If the library is loaded directly as a subproject, the Config of the subproject overrides the configuration of the main
@@ -87,7 +87,7 @@ class ConfigurationService @Inject()(defaultConfig: Config) {
       ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
     }
   }
-  val config = projectConfig.withFallback(fallbackConfig)
+  val config = defaultConfig.withFallback(projectConfig).withFallback(fallbackConfig)
 
   /**
     * Configuration for the election system. We merge multiple configuration files: One embedded, the other one from the project

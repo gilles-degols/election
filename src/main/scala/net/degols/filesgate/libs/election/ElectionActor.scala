@@ -18,6 +18,16 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
   private val random = new Random(System.currentTimeMillis())
   private var parent: Option[IAmTheParent] = _
 
+  /**
+    * By default, notify the parent. Otherwise notify the given actorRef
+    * @param actorRef
+    */
+  def notifyWhoIsTheLeader(actorRef: ActorRef = null): Unit = {
+    val toNotify = if(actorRef == null) parent.get.actorRef else actorRef
+    logger.debug(s"Send TheLeaderIs(${electionService.lastLeader}) to ${toNotify}")
+    toNotify ! TheLeaderIs(electionService.lastLeader)
+  }
+
   override def preStart(): Unit = {
     electionService.context = context
   }
@@ -25,7 +35,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
   override def aroundReceive(receive: Receive, msg: Any): Unit = {
     msg match {
       case x: WhoIsTheLeader => // Message sent by a WatcherActor to an ElectionActor to know who's in charge.
-        sender() ! TheLeaderIs(electionService.lastLeader)
+        notifyWhoIsTheLeader(sender())
       case x => receive(x)
     }
   }
@@ -60,9 +70,9 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Receive state] Unknown message received in the ElectionActor: $x")
+      } else if(parent.isDefined) {
         parent.get.actorRef ! x
       }
-
   }
 
   def candidate: Receive = { // Trying to be leader
@@ -122,6 +132,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Candidate state] Unknown message received in the ElectionActor: $x")
+      } else if(parent.isDefined) {
         parent.get.actorRef ! x
       }
   }
@@ -182,6 +193,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Follower state] Unknown message received in the ElectionActor: $x")
+      } else if(parent.isDefined) {
         parent.get.actorRef ! x
       }
   }
@@ -222,6 +234,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case x =>
       if(electionService.actorRefInConfig(sender(), x)) {
         logger.warn(s"[Leader state] Unknown message received in the ElectionActor: $x")
+      } else if(parent.isDefined) {
         parent.get.actorRef ! x
       }
   }
@@ -259,11 +272,13 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
             if(electionService.lastLeader.isEmpty || leaderFromPings.toString() != electionService.lastLeader.get.toString) {
               logger.debug(s"[$contextType state] Set the leaderFromPings: ${electionService.leaderFromPings} (vs ${electionService.lastLeader})")
               electionService.lastLeader = electionService.leaderFromPings
+              notifyWhoIsTheLeader()
             }
           case None =>
             if(electionService.lastLeader.isDefined) {
               logger.warn(s"[$contextType state] Lost leader from pings...")
               electionService.lastLeader = None
+              notifyWhoIsTheLeader()
             }
         }
       }
