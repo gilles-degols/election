@@ -3,7 +3,7 @@ package net.degols.filesgate.libs.election
 import akka.actor.ActorRef
 import org.joda.time.{DateTime, DateTimeZone}
 
-@SerialVersionUID(0L)
+@SerialVersionUID(1L)
 class SimpleRemoteMessage extends Serializable{
   val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
@@ -33,7 +33,7 @@ class RemoteMessageWrapper(val remoteMessage: RemoteMessage){
  *
   * @param actorRef remote actor ref
   */
-@SerialVersionUID(2L)
+@SerialVersionUID(1L)
 case class Ping(actorRef: ActorRef, leaderActorRef: Option[ActorRef], termNumber: Long) extends RemoteMessage(actorRef){
   override def toString: String = s"Ping: $actorRef @ $creationDatetime"
 }
@@ -44,20 +44,20 @@ case class Ping(actorRef: ActorRef, leaderActorRef: Option[ActorRef], termNumber
   * The "termNumber" is a monotonously increasing number, to use the Raft algorithm, to decide of a winning node. The node with the highest value will be elected
   * as leader (if other conditions are met).
   */
-@SerialVersionUID(3L)
+@SerialVersionUID(1L)
 case class RequestVotes(actorRef: ActorRef, termNumber: Long) extends RemoteMessage(actorRef) {
   override def toString: String = s"RequestVotes: $actorRef @ $creationDatetime"
 }
 
-@SerialVersionUID(4L)
+@SerialVersionUID(1L)
 abstract class RequestVotesReply(actorRef: ActorRef, val requestVotes: RequestVotes, val otherElectionSeeds: List[RequestVotes]) extends RemoteMessage(actorRef)
 
-@SerialVersionUID(5L)
+@SerialVersionUID(1L)
 case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes]) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesAccepted: $actorRef @ $creationDatetime"
 }
 
-@SerialVersionUID(6L)
+@SerialVersionUID(1L)
 case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesRefused: $actorRef @ $creationDatetime, reason: $reason"
 }
@@ -66,7 +66,7 @@ case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: Re
   * Small wrapper to focus on the local reception time (=local creation datetime) and not the external time
   * @param requestVotesReply
   */
-@SerialVersionUID(7L)
+@SerialVersionUID(1L)
 case class RequestVotesReplyWrapper(requestVotesReply: RequestVotesReply){
   val creationDatetime: DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
