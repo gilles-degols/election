@@ -24,8 +24,8 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     */
   def notifyWhoIsTheLeader(actorRef: ActorRef = null): Unit = {
     val toNotify = if(actorRef == null) parent.get.actorRef else actorRef
-    logger.debug(s"Send TheLeaderIs(${electionService.lastLeader}) to ${toNotify}")
-    toNotify ! TheLeaderIs(electionService.lastLeader)
+    logger.debug(s"Send TheLeaderIs(${electionService.lastLeader}, ${Option(parent.get.actorRef)}) to ${toNotify}")
+    toNotify ! TheLeaderIs(electionService.lastLeader, Option(parent.get.actorRef))
   }
 
   override def preStart(): Unit = {
@@ -49,6 +49,7 @@ class ElectionActor @Inject()(electionService: ElectionService, configurationSer
     case iamTheParent: IAmTheParent =>
       logger.info(s"[Receive state] Switch from the receive state to the follower state.")
       parent = Option(iamTheParent)
+      electionService.actorRefWrapper = parent.get.actorRef
       context.become(follower)
 
       // Try to discover the other nodes (=actorRef) some times.

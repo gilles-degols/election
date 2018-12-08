@@ -38,6 +38,7 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
     case iamTheParent: IAmTheParent =>
       logger.info(s"[Receive state] Switch from the receive state to the follower state.")
       parent = Option(iamTheParent)
+      electionService.actorRefWrapper = parent.get.actorRef
       context.become(watcher)
 
     case x =>
@@ -55,8 +56,8 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
       // If we never received any message back, we still need to inform the parent that we have no leader anymore
       val lastReceptionDiff = Tools.datetime().getMillis - _lastLeaderReception
       if(_lastLeaderReception > 0 && lastReceptionDiff >= configurationService.heartbeatFrequency.toMillis * 20L) {
-        logger.warn("[Watcher state] No TheLeaderIs received from any ElectionActor, consider that we have no leader anymore.")
-        parent.get.actorRef ! TheLeaderIs(None)
+        logger.warn("[Watcher state] No message 'TheLeaderIs' received from any ElectionActor, consider that we have no leader anymore.")
+        parent.get.actorRef ! TheLeaderIs(None, None)
       }
     case x: WhoIsTheLeader =>
       logger.error("[Watcher state] Got a WhoIsTheLeader in a WatcherActor. This message should never be sent to a Watcher, but to an ElectionActor...")

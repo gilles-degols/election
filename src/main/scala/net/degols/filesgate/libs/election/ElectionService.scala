@@ -49,6 +49,11 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   var context: ActorContext = _
 
   /**
+    * Must be set by the ElectionActor
+    */
+  var actorRefWrapper: ActorRef = _
+
+  /**
     * ActorRef for each Jvm
     */
   var jvmActorRefs: Map[String, ActorRef] = Map.empty
@@ -57,6 +62,11 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * Latest detected leader
     */
   var lastLeader: Option[ActorRef] = None
+
+  /**
+    * Latest detected leader wrapper (linked to the leader)
+    */
+  var lastLeaderWrapper: Option[ActorRef] = None
 
   /**
     * History of every JVM, based on the jvm id
@@ -335,6 +345,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       } else {
         logger.debug(s"We got ${acceptingJvmIds.length} RequestVotesAccepted messages ($acceptingJvmIds), we can become primary. Term is ${termNumber}.")
         lastLeader = Option(context.self)
+        lastLeaderWrapper = Option(actorRefWrapper)
         true
       }
     } else {

@@ -29,13 +29,14 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   // Depending on the configuration, we take part in the election, or we simply watch it
   val election: ActorRef = if(electionService.currentProcessIsElectionNode()) actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)
   else actorSystem.actorOf(Props(classOf[WatcherActor], electionService, configurationService), ConfigurationService.ElectionActorName)
-
   election ! IAmTheParent(self)
 
   private var _isLeader: Boolean = false
   private var _currentLeader: Option[ActorRef] = None
+  private var _currentLeaderWrapper: Option[ActorRef] = None
 
   def currentLeader: Option[ActorRef] = _currentLeader
+  def currentLeaderWrapper: Option[ActorRef] = _currentLeaderWrapper
   def isLeader: Boolean = _isLeader
 
   override def aroundReceive(receive: Receive, msg: Any): Unit = {
@@ -45,12 +46,15 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
     msg match {
       case IAmLeader => // Message received if we take part in the election
         _currentLeader = electionService.lastLeader
+        _currentLeaderWrapper = electionService.lastLeaderWrapper
         _isLeader = true
       case IAmFollower => // Message received if we take part in the election
         _currentLeader = electionService.lastLeader
+        _currentLeaderWrapper = electionService.lastLeader
         _isLeader = false
-      case TheLeaderIs(leader) => // Message received if we got an update about the current leader (it might be None)
-        _currentLeader = leader
+      case leader: TheLeaderIs => // Message received if we got an update about the current leader (it might be None)
+        _currentLeader = leader.leader
+        _currentLeaderWrapper = leader.leaderWrapper
       case x => // Message is forwarded below
     }
 
