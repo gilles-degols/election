@@ -1,4 +1,4 @@
-package net.degols.filesgate.libs.election
+package net.degols.libs.election
 
 import java.util.concurrent.{ExecutorService, Executors}
 import javax.inject.Inject

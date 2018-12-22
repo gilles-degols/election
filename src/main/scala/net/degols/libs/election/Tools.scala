@@ -1,4 +1,4 @@
-package net.degols.filesgate.libs.election
+package net.degols.libs.election
 
 import akka.actor.ActorRef
 import org.joda.time.{DateTime, DateTimeZone}
