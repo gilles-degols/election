@@ -1,6 +1,8 @@
+import sbt.Credentials
+
 name := "election"
 organization := "net.degols.libs"
-version := "0.0.1"
+version := "1.0.0"
 
 scalacOptions ++= Seq("-deprecation", "-feature", "-language:postfixOps")
 
@@ -24,3 +26,12 @@ libraryDependencies += "joda-time" % "joda-time" % "2.10"
 
 // Akka Remoting
 libraryDependencies += "com.typesafe.akka" %% "akka-remote" % akkaVersion
+
+
+// Allow temporary overwrite
+// publishConfiguration := publishConfiguration.value.withOverwrite(true)
+// publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
+publishTo := Some("gd-maven" at s"http://localhost:8081/repository/maven-gd")
+isSnapshot := false
+credentials += Credentials("Sonatype Nexus Repository Manager", "localhost", "admin", "admin123")
+resolvers += "gd-maven" at "http://localhost:8081/repository/maven-gd/"
