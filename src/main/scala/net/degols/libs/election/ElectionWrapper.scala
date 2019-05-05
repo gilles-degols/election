@@ -40,8 +40,6 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   def isLeader: Boolean = _isLeader
 
   override def aroundReceive(receive: Receive, msg: Any): Unit = {
-    super.aroundReceive(receive, msg)
-
     logger.debug(s"[ElectionWrapper] Around Receive: $msg")
     msg match {
       case IAmLeader => // Message received if we take part in the election
@@ -55,9 +53,10 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
       case leader: TheLeaderIs => // Message received if we got an update about the current leader (it might be None)
         _currentLeader = leader.leader
         _currentLeaderWrapper = leader.leaderWrapper
-      case x => // Message is forwarded below
+      case x => // Message is handled below
     }
 
-    receive(msg)
+    // Also useful to call the default method for internal messages, that way the developer can subscribe to it
+    super.aroundReceive(receive, msg)
   }
 }

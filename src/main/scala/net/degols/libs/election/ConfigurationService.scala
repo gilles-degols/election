@@ -99,7 +99,7 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
     * List of nodes we have to watch / monitor. Those are needed to know if we have to watch 3 of them, or more, and to be able
     * to contact them. Try to not exceed 5. If none are given, localhost is used.
     */
-  val electionNodes: List[ElectionNode] = {
+  val electionNodes: Seq[ElectionNode] = {
     val rawNodes = getStringList("election.nodes")
     if(rawNodes.isEmpty) {
       logger.warn("No election node in the configuration, use 127.0.0.1 with the default port.")
@@ -152,7 +152,7 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
   /**
     * Methods to get data from the embedded configuration, or the project configuration (it can override it)
     */
-  private def getStringList(path: String): List[String] = {
+  private def getStringList(path: String): Seq[String] = {
     config.getStringList(path).asScala.toList
   }
 }

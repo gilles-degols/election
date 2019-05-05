@@ -50,15 +50,15 @@ case class RequestVotes(actorRef: ActorRef, termNumber: Long) extends RemoteMess
 }
 
 @SerialVersionUID(1L)
-abstract class RequestVotesReply(actorRef: ActorRef, val requestVotes: RequestVotes, val otherElectionSeeds: List[RequestVotes]) extends RemoteMessage(actorRef)
+abstract class RequestVotesReply(actorRef: ActorRef, val requestVotes: RequestVotes, val otherElectionSeeds: Seq[RequestVotes]) extends RemoteMessage(actorRef)
 
 @SerialVersionUID(1L)
-case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes]) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
+case class RequestVotesAccepted(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: Seq[RequestVotes]) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesAccepted: $actorRef @ $creationDatetime"
 }
 
 @SerialVersionUID(1L)
-case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: List[RequestVotes], reason: String) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
+case class RequestVotesRefused(actorRef: ActorRef, override val requestVotes: RequestVotes, override val otherElectionSeeds: Seq[RequestVotes], reason: String) extends RequestVotesReply(actorRef, requestVotes, otherElectionSeeds) {
   override def toString: String = s"RequestVotesRefused: $actorRef @ $creationDatetime, reason: $reason"
 }
 

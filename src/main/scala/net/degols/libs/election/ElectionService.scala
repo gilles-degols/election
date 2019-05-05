@@ -36,12 +36,12 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   /**
     * RequestVotes received from external nodes.
     */
-  private var _otherRequestVotes: List[RequestVotes] = List.empty[RequestVotes]
+  private var _otherRequestVotes: Seq[RequestVotes] = List.empty[RequestVotes]
 
   /**
     * List of accepted answers for the _lastRequestVotes.
     */
-  private var _requestVotesReplies: List[RequestVotesReplyWrapper] = List.empty[RequestVotesReplyWrapper]
+  private var _requestVotesReplies: Seq[RequestVotesReplyWrapper] = List.empty[RequestVotesReplyWrapper]
 
   /**
     * Must be set by the ElectionActor
