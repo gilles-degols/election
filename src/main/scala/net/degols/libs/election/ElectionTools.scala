@@ -6,7 +6,7 @@ import org.joda.time.{DateTime, DateTimeZone}
 /**
   * Created by Gilles.Degols on 04-09-18.
   */
-object Tools {
+object ElectionTools {
   def datetime(): DateTime = new DateTime().withZone(DateTimeZone.UTC)
 
   /**

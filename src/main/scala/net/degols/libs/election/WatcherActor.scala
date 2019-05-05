@@ -54,7 +54,7 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
       electionService.sendWhoIsTheLeader()
 
       // If we never received any message back, we still need to inform the parent that we have no leader anymore
-      val lastReceptionDiff = Tools.datetime().getMillis - _lastLeaderReception
+      val lastReceptionDiff = ElectionTools.datetime().getMillis - _lastLeaderReception
       if(_lastLeaderReception > 0 && lastReceptionDiff >= configurationService.heartbeatFrequency.toMillis * 20L) {
         logger.warn("[Watcher state] No message 'TheLeaderIs' received from any ElectionActor, consider that we have no leader anymore.")
         parent.get.actorRef ! TheLeaderIs(None, None)
@@ -64,7 +64,7 @@ class WatcherActor @Inject()(electionService: ElectionService, configurationServ
 
     case leader: TheLeaderIs =>
       logger.info("[Watcher state] Got TheLeaderIs message, send it to the parent")
-      _lastLeaderReception = Tools.datetime().getMillis
+      _lastLeaderReception = ElectionTools.datetime().getMillis
       parent.get.actorRef ! leader
     case x =>
       logger.warn(s"[Watcher state] Unknown message received in the ElectionActor: $x")

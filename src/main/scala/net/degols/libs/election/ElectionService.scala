@@ -109,7 +109,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         }
       }).filter(ping => {
         // Only keep ping if recent enough
-        ping.creationDatetime.getMillis + 5* configurationService.heartbeatFrequency.toMillis >= Tools.datetime().getMillis
+        ping.creationDatetime.getMillis + 5* configurationService.heartbeatFrequency.toMillis >= ElectionTools.datetime().getMillis
       }).map(_.remoteMessage.asInstanceOf[Ping])
         .filter(ping => ping.leaderActorRef.isDefined && ping.leaderActorRef.get == ping.actorRef) // Only keep the leader from the leader itself
         .map(_.leaderActorRef.get).toList.distinct
@@ -364,8 +364,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         false
       case Some(requestVotes) =>
         val maxDifference = configurationService.electionAttemptMaxFrequency.toMillis
-        logger.debug(s"Checking request votes timeout: ${maxDifference} vs ${requestVotes.creationDatetime.getMillis + maxDifference} > ${Tools.datetime().getMillis}")
-        requestVotes.creationDatetime.getMillis + maxDifference < Tools.datetime().getMillis
+        logger.debug(s"Checking request votes timeout: ${maxDifference} vs ${requestVotes.creationDatetime.getMillis + maxDifference} > ${ElectionTools.datetime().getMillis}")
+        requestVotes.creationDatetime.getMillis + maxDifference < ElectionTools.datetime().getMillis
     }
   }
 
@@ -387,7 +387,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
             false
           case Some(wrapper) =>
             // We allow a bit more than the maxDifference, as there will always be some delay
-            wrapper.creationDatetime.getMillis + 5*maxDifference < Tools.datetime().getMillis
+            wrapper.creationDatetime.getMillis + 5*maxDifference < ElectionTools.datetime().getMillis
         }
     }
   }
@@ -454,7 +454,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * We only allow messages from machines with an ip / hostname in the configuration
     */
   def actorRefInConfig(actorRef: ActorRef, message: Any): Boolean = {
-    val remotePath = Tools.remoteActorPath(actorRef)
+    val remotePath = ElectionTools.remoteActorPath(actorRef)
 
     // The remote actor path is not always valid (it does not contain the hostname + port) if there is a missing configuration
     if (!remotePath.contains("@")) { // Valid: akka.tcp://ElectionSystem@127.0.0.1:2182/user/ElectionActor, invalid: akka://application/user/worker
