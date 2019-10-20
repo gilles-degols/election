@@ -18,16 +18,9 @@ As we use the Paxos algorithm, you should only have 3 or 5 nodes participating i
 
 # Installation
 
-As of now, we did not yet publish the library in Maven Central, so you need to build and publish it to your local repository. For example, once you pulled the project:
-
-`sbt +publishLocal`
-
-In the sbt project:
-
+The library is available on Maven Central, hence, you can easily import it:
 ```
-lazy val electionLibraryVersion = "0.0.1"
-"net.degols" %% "election" % electionLibraryVersion 
-	exclude("log4j", "log4j") exclude("org.slf4j","slf4j-log4j12")
+libraryDependencies += "net.degols.libs" % "election" % "1.0.0" exclude("log4j", "log4j") exclude("org.slf4j","slf4j-log4j12")
 ```
 
 Another alternative, useful for contributors, is to have the "election" package in the same directory as your "election-example" project using it. Then, by following this [build.sbt](https://github.com/gilles-degols/election-example/blob/master/build.sbt) used for an election-example project, you can automatically build the election library alongside the election-example project itself.
