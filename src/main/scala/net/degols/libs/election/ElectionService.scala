@@ -15,7 +15,7 @@ import scala.concurrent.duration._
   * Election system is using the Raft algorithm: https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf
   */
 @Singleton
-class ElectionService @Inject()(configurationService: ConfigurationService) {
+class ElectionService @Inject()(electionConfigurationService: ElectionConfigurationApi) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
@@ -109,7 +109,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         }
       }).filter(ping => {
         // Only keep ping if recent enough
-        ping.creationDatetime.getMillis + 5* configurationService.heartbeatFrequency.toMillis >= ElectionTools.datetime().getMillis
+        ping.creationDatetime.getMillis + 5* electionConfigurationService.heartbeatFrequency.toMillis >= ElectionTools.datetime().getMillis
       }).map(_.remoteMessage.asInstanceOf[Ping])
         .filter(ping => ping.leaderActorRef.isDefined && ping.leaderActorRef.get == ping.actorRef) // Only keep the leader from the leader itself
         .map(_.leaderActorRef.get).toList.distinct
@@ -176,7 +176,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * Send a ping to every actor-ref, they must be reachable first, we don't want to resolve an actor ref here.
     */
   def sendPingToKnownNodes(): Unit = {
-    configurationService.electionNodes.foreach(electionNode => {
+    electionConfigurationService.electionNodes.foreach(electionNode => {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Quite simple to contact it
           logger.debug(s"Send ping to reachable ElectionNode: $electionNode")
@@ -188,7 +188,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   }
 
   def sendPingToUnreachableNodes(): Unit = {
-    configurationService.electionNodes.foreach(electionNode => {
+    electionConfigurationService.electionNodes.foreach(electionNode => {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Nothing to do here
         case None => // Need to resolve the actor path. It might not exist, we are not sure
@@ -206,7 +206,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     */
   def sendWhoIsTheLeader(): Unit = {
     val message = WhoIsTheLeader()
-    val electionNode = Random.shuffle(configurationService.electionNodes).head
+    val electionNode = Random.shuffle(electionConfigurationService.electionNodes).head
     actorRefForElectionNode(electionNode) match {
       case Some(res) => // Quite simple to contact it
         logger.debug(s"Send WhoIsTheLeader to reachable ElectionNode: $electionNode")
@@ -224,7 +224,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
   private def sendMessageToUnreachableNode(electionNode: ElectionNode, message: Any): Future[Try[Unit]] = Future {
     Try {
       val remoteActorRef: ActorRef = try {
-        Await.result(context.actorSelection(electionNode.akkaUri).resolveOne(configurationService.timeoutUnreachableNode).recover {
+        Await.result(context.actorSelection(electionNode.akkaUri).resolveOne(electionConfigurationService.timeoutUnreachableNode).recover {
           case t: TimeoutException =>
             logger.warn("Got a TimeoutException while trying to resolve the actorRef of an ElectionNode.")
             null
@@ -232,7 +232,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
             logger.warn(s"Got a generic Exception while trying to resolve the actorRef of an ElectionNode: ${x.getMessage}.")
             //x.printStackTrace()
             null
-        }, configurationService.timeoutUnreachableNode)
+        }, electionConfigurationService.timeoutUnreachableNode)
       } catch {
         case x: TimeoutException =>
           logger.warn("Got a TimeoutException while trying to resolve the actorRef of an ElectionNode.")
@@ -258,8 +258,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     // Generate an election seed if we don't have one yet.
     generateElectionSeed()
 
-    logger.debug(s"Election nodes: ${configurationService.electionNodes}")
-    configurationService.electionNodes.foreach(electionNode => {
+    logger.debug(s"Election nodes: ${electionConfigurationService.electionNodes}")
+    electionConfigurationService.electionNodes.foreach(electionNode => {
       actorRefForElectionNode(electionNode) match {
         case Some(res) => // Quite simple to contact it
           logger.debug(s"Send RequestVotes (${_lastRequestVotes.get}) to reachable ElectionNode: $electionNode")
@@ -363,7 +363,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         logger.debug("No request votes created by ourselves, nothing to do.")
         false
       case Some(requestVotes) =>
-        val maxDifference = configurationService.electionAttemptMaxFrequency.toMillis
+        val maxDifference = electionConfigurationService.electionAttemptMaxFrequency.toMillis
         logger.debug(s"Checking request votes timeout: ${maxDifference} vs ${requestVotes.creationDatetime.getMillis + maxDifference} > ${ElectionTools.datetime().getMillis}")
         requestVotes.creationDatetime.getMillis + maxDifference < ElectionTools.datetime().getMillis
     }
@@ -380,7 +380,7 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
         logger.warn("No ping received from any other nodes, nothing to do.")
         false
       case Some(history) =>
-        val maxDifference = configurationService.heartbeatCheckFrequency.toMillis
+        val maxDifference = electionConfigurationService.heartbeatCheckFrequency.toMillis
         history.lastPingWrapper() match {
           case None =>
             logger.warn("No ping received from any other nodes, nothing to do.")
@@ -415,13 +415,13 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * @return
     */
   def allReachableNodes: Boolean = {
-    jvmActorRefs.values.size == configurationService.electionNodes.length
+    jvmActorRefs.values.size == electionConfigurationService.electionNodes.length
   }
 
   /**
     * Number of nodes we should have replies from to have a majority
     */
-  def nodesForMajority: Int = math.floor(configurationService.electionNodes.length / 2f).toInt + 1
+  def nodesForMajority: Int = math.floor(electionConfigurationService.electionNodes.length / 2f).toInt + 1
 
   /**
     * Try to find the jvm id for a given actor ref. Normally we should always have it.
@@ -445,9 +445,9 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     * @return
     */
   def currentProcessIsElectionNode(): Boolean = {
-    configurationService.electionNodes.exists(electionNode => {
-      logger.debug(s"Compare election node ${electionNode.hostname}:${electionNode.port} with current node ${configurationService.akkaLocalHostname}:${configurationService.akkaLocalPort}")
-      s"${electionNode.hostname}:${electionNode.port}" == s"${configurationService.akkaLocalHostname}:${configurationService.akkaLocalPort}"
+    electionConfigurationService.electionNodes.exists(electionNode => {
+      logger.debug(s"Compare election node ${electionNode.hostname}:${electionNode.port} with current node ${electionConfigurationService.akkaLocalHostname}:${electionConfigurationService.akkaLocalPort}")
+      s"${electionNode.hostname}:${electionNode.port}" == s"${electionConfigurationService.akkaLocalHostname}:${electionConfigurationService.akkaLocalPort}"
     })
   }
 
@@ -462,12 +462,12 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
       throw new Exception(s"Missing configuration to have a valid remote actor path for $actorRef.")
     }
 
-    val isInConfig = configurationService.electionNodes.exists(electionNode => {
+    val isInConfig = electionConfigurationService.electionNodes.exists(electionNode => {
       electionNode.akkaUri == remotePath
     })
 
     if(!isInConfig) {
-      logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} / $remotePath not in the configured nodes: ${configurationService.electionNodes}. Message: $message")
+      logger.warn(s"We received a message from an actorRef (${actorRef.path.toString} / $remotePath not in the configured nodes: ${electionConfigurationService.electionNodes}. Message: $message")
     }
 
     isInConfig

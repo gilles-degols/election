@@ -13,7 +13,7 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
   * Easy to use wrapper to have an election system around any actor. An ElectionWrapper can be a simple follower or
   * participating in the election.
   */
-abstract class ElectionWrapper @Inject()(electionService: ElectionService, configurationService: ConfigurationService, actorSystem: ActorSystem) extends Actor {
+abstract class ElectionWrapper @Inject()(electionService: ElectionService, configurationService: ElectionConfigurationApi, actorSystem: ActorSystem) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
 
   // We use the ActorSystem
@@ -24,10 +24,10 @@ abstract class ElectionWrapper @Inject()(electionService: ElectionService, confi
   // Depending on the configuration, we take part in the election, or we simply watch it
   val election: ActorRef = if(electionService.currentProcessIsElectionNode()) {
     logger.debug("Start an ElectionActor as we are part of the election nodes")
-    actorSystem.actorOf(Props(new ElectionActor(electionService, configurationService)), ConfigurationService.ElectionActorName)
+    actorSystem.actorOf(Props(new ElectionActor(electionService, configurationService)), ElectionConfiguration.ElectionActorName)
   } else {
     logger.debug("Start a WatcherActor as we are not part of the election nodes")
-    actorSystem.actorOf(Props(new WatcherActor(electionService, configurationService)), ConfigurationService.ElectionActorName)
+    actorSystem.actorOf(Props(new WatcherActor(electionService, configurationService)), ElectionConfiguration.ElectionActorName)
   }
   election ! IAmTheParent(self)
 

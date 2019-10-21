@@ -13,7 +13,7 @@ import scala.concurrent.duration._
   * The external code using the election system will need to instantiate one instance of the ElectionActor with the fallback
   */
 @Singleton
-class ElectionActor @Inject()(electionService: ElectionService, configurationService: ConfigurationService) extends Actor {
+class ElectionActor @Inject()(electionService: ElectionService, configurationService: ElectionConfigurationApi) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
   private val random = new Random(System.currentTimeMillis())
   private var parent: Option[IAmTheParent] = _

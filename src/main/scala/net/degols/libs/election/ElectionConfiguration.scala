@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
 import collection.JavaConverters._
 import scala.concurrent.duration._
 import scala.util.Try
-
+import javax.inject.Singleton
 
 // rawPath must be "actorSystem@hostname:port"
 case class ElectionNode(rawPath: String) {
@@ -29,14 +29,14 @@ case class ElectionNode(rawPath: String) {
   /**
     * URI to connect to the akka system on the election node.
     */
-  val akkaUri: String = s"akka.tcp://$actorSystemName@$hostname:$port/user/${ConfigurationService.ElectionActorName}"
+  val akkaUri: String = s"akka.tcp://$actorSystemName@$hostname:$port/user/${ElectionConfiguration.ElectionActorName}"
 
   def jvmId: String = akkaUri.toString().replace(".tcp","").split("/user/").head
 
   override def toString: String = s"ElectionNode: $akkaUri"
 }
 
-object ConfigurationService {
+object ElectionConfiguration {
   val DispatcherName: String = "ElectionDispatcher"
 
   /**
@@ -53,38 +53,8 @@ object ConfigurationService {
 /**
   * Created by Gilles.Degols on 03-09-18.
   */
-class ConfigurationService @Inject()(val defaultConfig: Config) {
-  private val logger = LoggerFactory.getLogger(getClass)
-
-  /**
-    * If the library is loaded directly as a subproject, the Config of the subproject overrides the configuration of the main
-    * project by default, and we want the opposite.
-    * Note: This seems to be fixed now... Better be careful with some breaking changes
-    */
-  private lazy val projectConfig: Config = {
-    val projectFile = new File(pathToProjectFile)
-    ConfigFactory.load(ConfigFactory.parseFile(projectFile))
-  }
-
-  private val pathToProjectFile: String = {
-    Try{ConfigFactory.systemProperties().getString("config.resource")}.getOrElse("conf/application.conf")
-  }
-
-  private lazy val fallbackConfig: Config = {
-    val fileInSubproject = new File("../election/src/main/resources/application.conf")
-    val fileInProject = new File("main/resources/application.conf")
-    if (fileInSubproject.exists()) {
-      ConfigFactory.load(ConfigFactory.parseFile(fileInSubproject))
-    } else {
-      ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
-    }
-  }
-  val config: Config = {
-    logger.debug(s"Project election config is ${projectConfig.getConfig("election")}")
-    logger.debug(s"Default election config is ${defaultConfig.getConfig("election")}")
-    logger.debug(s"Fallback election config is ${fallbackConfig.getConfig("election")}")
-    projectConfig.withFallback(defaultConfig).withFallback(fallbackConfig)
-  }
+@Singleton
+class ElectionConfiguration @Inject()(val cfg: Config) extends ElectionConfigurationApi with ConfigurationMerge {
 
   /**
     * It's difficult to get a remote actor path locally. Because of that, we still want to know the current hostname + port
@@ -149,4 +119,7 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
   private def getStringList(path: String): Seq[String] = {
     config.getStringList(path).asScala.toList
   }
+
+  override val directoryName: String = "election"
+  override lazy val defaultConfig: Config = cfg
 }

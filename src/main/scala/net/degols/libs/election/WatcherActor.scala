@@ -13,7 +13,7 @@ import scala.concurrent.duration._
   * Watch ElectionActors to detect the leaders
   */
 @Singleton
-class WatcherActor @Inject()(electionService: ElectionService, configurationService: ConfigurationService) extends Actor {
+class WatcherActor @Inject()(electionService: ElectionService, configurationService: ElectionConfigurationApi) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
   private val random = new Random(System.currentTimeMillis())
   private var parent: Option[IAmTheParent] = _
