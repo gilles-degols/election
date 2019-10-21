@@ -2,30 +2,20 @@ import sbt.Credentials
 
 name := "election"
 organization := "net.degols.libs"
-version := "1.0.0"
-
-scalacOptions ++= Seq("-deprecation", "-feature", "-language:postfixOps")
+version := "1.1.0"
 
 scalaVersion := "2.12.8"
-lazy val playVersion = "2.6.1"
-lazy val akkaVersion = "2.5.2"
+lazy val akkaVersion = "2.5.23"
+
+libraryDependencies ++= Seq(
+  "com.typesafe.akka" %% "akka-slf4j" % akkaVersion exclude("log4j", "log4j") exclude("org.slf4j","slf4j-log4j12"),
+  "com.typesafe.akka" %% "akka-stream" % akkaVersion,
+  "com.typesafe.akka" %% "akka-actor" % akkaVersion,
+  "com.typesafe.akka" %% "akka-remote" % akkaVersion
+)
 
 libraryDependencies += "com.google.inject" % "guice" % "4.2.2"
-
-libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-slf4j" % akkaVersion exclude("log4j", "log4j") exclude("org.slf4j","slf4j-log4j12")
-)
-
-libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
-  "com.typesafe.akka" %% "akka-stream" % akkaVersion,
-  "com.typesafe.akka" %% "akka-actor" % akkaVersion
-)
-
 libraryDependencies += "joda-time" % "joda-time" % "2.10"
-
-// Akka Remoting
-libraryDependencies += "com.typesafe.akka" %% "akka-remote" % akkaVersion
 
 resolvers += "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/"
 

@@ -12,23 +12,24 @@ import scala.concurrent.duration._
 import scala.util.Try
 
 
+// rawPath must be "actorSystem@hostname:port"
 case class ElectionNode(rawPath: String) {
   // hostname or ip, same thing for the code
-  val hostname: String = rawPath.split(':').head
-
-  val port: Int = {
-    val elements = rawPath.split(':')
-    if(elements.length == 1) {
-      ConfigurationService.DefaultPort
-    } else {
-      elements.last.toInt
+  val hostname: String = rawPath.split(':').head.split("@").last
+  val actorSystemName: String = {
+    val elems = rawPath.split('@')
+    if(elems.length != 2) {
+      throw new Exception("Invalid node configuration! Must be actorSystem@hostname:port")
     }
+    elems.head
   }
+
+  val port: Int = rawPath.split(':').last.toInt
 
   /**
     * URI to connect to the akka system on the election node.
     */
-  val akkaUri: String = s"akka.tcp://${ConfigurationService.ElectionSystemName}@$hostname:$port/user/${ConfigurationService.ElectionActorName}"
+  val akkaUri: String = s"akka.tcp://$actorSystemName@$hostname:$port/user/${ConfigurationService.ElectionActorName}"
 
   def jvmId: String = akkaUri.toString().replace(".tcp","").split("/user/").head
 
@@ -39,11 +40,6 @@ object ConfigurationService {
   val DispatcherName: String = "ElectionDispatcher"
 
   /**
-    * Default election system name. We use a specific one for the election (different than the application one)
-    */
-  val ElectionSystemName: String = "ElectionSystem"
-
-  /**
     * Default actor name to handle every remote message
     */
   val ElectionActorName: String = "ElectionActor"
@@ -52,12 +48,6 @@ object ConfigurationService {
     * Default actor name to look for the leader (for the WatcherActor not taking part in the election)
     */
   val WatcherSystemName: String = "WatcherSystem"
-
-  /**
-    * Default port for the election nodes if those weren't given. 2181 is the one used by zookeeper, and we want to not
-    * use it, so we will arbitrarily do "+1"
-    */
-  val DefaultPort: Int = 2182
 }
 
 /**
@@ -65,9 +55,11 @@ object ConfigurationService {
   */
 class ConfigurationService @Inject()(val defaultConfig: Config) {
   private val logger = LoggerFactory.getLogger(getClass)
+
   /**
     * If the library is loaded directly as a subproject, the Config of the subproject overrides the configuration of the main
     * project by default, and we want the opposite.
+    * Note: This seems to be fixed now... Better be careful with some breaking changes
     */
   private lazy val projectConfig: Config = {
     val projectFile = new File(pathToProjectFile)
@@ -87,7 +79,18 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
       ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
     }
   }
-  val config = defaultConfig.withFallback(projectConfig).withFallback(fallbackConfig)
+  val config: Config = {
+    logger.debug(s"Project election config is ${projectConfig.getConfig("election")}")
+    logger.debug(s"Default election config is ${defaultConfig.getConfig("election")}")
+    logger.debug(s"Fallback election config is ${fallbackConfig.getConfig("election")}")
+    projectConfig.withFallback(defaultConfig).withFallback(fallbackConfig)
+  }
+
+  /**
+    * It's difficult to get a remote actor path locally. Because of that, we still want to know the current hostname + port
+    */
+  val akkaLocalHostname: String = config.getString("akka.remote.netty.tcp.hostname")
+  val akkaLocalPort: Int = config.getInt("akka.remote.netty.tcp.port")
 
   /**
     * Configuration for the election system. We merge multiple configuration files: One embedded, the other one from the project
@@ -102,8 +105,8 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
   val electionNodes: Seq[ElectionNode] = {
     val rawNodes = getStringList("election.nodes")
     if(rawNodes.isEmpty) {
-      logger.warn("No election node in the configuration, use 127.0.0.1 with the default port.")
-      List(ElectionNode(s"127.0.0.1:${ConfigurationService.DefaultPort}"))
+      logger.warn("No election node in the configuration, use the local system.")
+      List(ElectionNode(s"$akkaLocalHostname:$akkaLocalPort"))
     } else {
       rawNodes.map(node => ElectionNode(node))
     }
@@ -114,40 +117,31 @@ class ConfigurationService @Inject()(val defaultConfig: Config) {
     * Ping and discovery is the same code.
     * This value must be bigger than the timeoutUnreachableNode.
     */
-  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-ms") millis
+  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-ms").millis
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-ms") millis
+  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-ms").millis
 
   /**
     * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
     * the term if we are already in this mode)
     */
-  val heartbeatCheckFrequency: FiniteDuration = config.getInt("election.heartbeat-check-frequency-ms") millis
+  val heartbeatCheckFrequency: FiniteDuration = config.getInt("election.heartbeat-check-frequency-ms").millis
 
   /**
     * We send Ping messages frequently
     */
-  val heartbeatFrequency: FiniteDuration = config.getInt("election.heartbeat-frequency-ms") millis
+  val heartbeatFrequency: FiniteDuration = config.getInt("election.heartbeat-frequency-ms").millis
 
   /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
     * time for all services to reply, and avoid the system being stuck.
     */
-  val electionAttemptMaxFrequency: FiniteDuration = config.getInt("election.election-attempt-max-frequency-ms") millis
-  val electionAttemptMinFrequency: FiniteDuration = config.getInt("election.election-attempt-min-frequency-ms") millis
+  val electionAttemptMaxFrequency: FiniteDuration = config.getInt("election.election-attempt-max-frequency-ms").millis
+  val electionAttemptMinFrequency: FiniteDuration = config.getInt("election.election-attempt-min-frequency-ms").millis
 
-
-  /**
-    * It's difficult to get a remote actor path locally. Because of that, we still want to know the current hostname + port
-    */
-  val akkaLocalHostname: String = config.getString("akka.remote.netty.tcp.hostname")
-  val akkaLocalPort: Int = config.getInt("akka.remote.netty.tcp.port")
-
-  val akkaElectionRemoteHostname: String = config.getString("election.akka.remote.netty.tcp.hostname")
-  val akkaElectionRemotePort: Int = config.getInt("election.akka.remote.netty.tcp.port")
 
   /**
     * Methods to get data from the embedded configuration, or the project configuration (it can override it)

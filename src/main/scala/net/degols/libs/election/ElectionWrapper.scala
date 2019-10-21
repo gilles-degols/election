@@ -13,22 +13,22 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
   * Easy to use wrapper to have an election system around any actor. An ElectionWrapper can be a simple follower or
   * participating in the election.
   */
-abstract class ElectionWrapper @Inject()(electionService: ElectionService, configurationService: ConfigurationService) extends Actor {
+abstract class ElectionWrapper @Inject()(electionService: ElectionService, configurationService: ConfigurationService, actorSystem: ActorSystem) extends Actor {
   private val logger = LoggerFactory.getLogger(getClass)
 
   // We use the ActorSystem
   val threadPool: ExecutorService = Executors.newFixedThreadPool(1)
   implicit val executionContext: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(threadPool)
-  val config: Config = configurationService.electionConfig
-
-  val systemName: String = if(electionService.currentProcessIsElectionNode()) ConfigurationService.ElectionSystemName
-  else ConfigurationService.WatcherSystemName
-
-  val actorSystem: ActorSystem = ActorSystem(systemName, config)
+  val electionConfig: Config = configurationService.electionConfig
 
   // Depending on the configuration, we take part in the election, or we simply watch it
-  val election: ActorRef = if(electionService.currentProcessIsElectionNode()) actorSystem.actorOf(Props(classOf[ElectionActor], electionService, configurationService), ConfigurationService.ElectionActorName)
-  else actorSystem.actorOf(Props(classOf[WatcherActor], electionService, configurationService), ConfigurationService.ElectionActorName)
+  val election: ActorRef = if(electionService.currentProcessIsElectionNode()) {
+    logger.debug("Start an ElectionActor as we are part of the election nodes")
+    actorSystem.actorOf(Props(new ElectionActor(electionService, configurationService)), ConfigurationService.ElectionActorName)
+  } else {
+    logger.debug("Start a WatcherActor as we are not part of the election nodes")
+    actorSystem.actorOf(Props(new WatcherActor(electionService, configurationService)), ConfigurationService.ElectionActorName)
+  }
   election ! IAmTheParent(self)
 
   private var _isLeader: Boolean = false

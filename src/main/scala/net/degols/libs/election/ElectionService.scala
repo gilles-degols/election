@@ -446,7 +446,8 @@ class ElectionService @Inject()(configurationService: ConfigurationService) {
     */
   def currentProcessIsElectionNode(): Boolean = {
     configurationService.electionNodes.exists(electionNode => {
-      s"${electionNode.hostname}:${electionNode.port}" == s"${configurationService.akkaElectionRemoteHostname}:${configurationService.akkaElectionRemotePort}"
+      logger.debug(s"Compare election node ${electionNode.hostname}:${electionNode.port} with current node ${configurationService.akkaLocalHostname}:${configurationService.akkaLocalPort}")
+      s"${electionNode.hostname}:${electionNode.port}" == s"${configurationService.akkaLocalHostname}:${configurationService.akkaLocalPort}"
     })
   }
 
