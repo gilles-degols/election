@@ -54,19 +54,20 @@ object ElectionConfiguration {
   * Created by Gilles.Degols on 03-09-18.
   */
 @Singleton
-class ElectionConfiguration @Inject()(val cfg: Config) extends ElectionConfigurationApi with ConfigurationMerge {
+class ElectionConfiguration @Inject()(val cfg: ConfigurationMerge) extends ElectionConfigurationApi {
+  protected val logger = LoggerFactory.getLogger(getClass)
 
   /**
     * It's difficult to get a remote actor path locally. Because of that, we still want to know the current hostname + port
     */
-  val akkaLocalHostname: String = config.getString("akka.remote.netty.tcp.hostname")
-  val akkaLocalPort: Int = config.getInt("akka.remote.netty.tcp.port")
+  val akkaLocalHostname: String = cfg.config.getString("akka.remote.netty.tcp.hostname")
+  val akkaLocalPort: Int = cfg.config.getInt("akka.remote.netty.tcp.port")
 
   /**
     * Configuration for the election system. We merge multiple configuration files: One embedded, the other one from the project
     * using the election library
     */
-  val electionConfig: Config = config.getConfig("election")
+  val electionConfig: Config = cfg.config.getConfig("election")
 
   /**
     * List of nodes we have to watch / monitor. Those are needed to know if we have to watch 3 of them, or more, and to be able
@@ -87,39 +88,37 @@ class ElectionConfiguration @Inject()(val cfg: Config) extends ElectionConfigura
     * Ping and discovery is the same code.
     * This value must be bigger than the timeoutUnreachableNode.
     */
-  val discoverNodesFrequency: FiniteDuration = config.getInt("election.discover-nodes-frequency-ms").millis
+  val discoverNodesFrequency: FiniteDuration = cfg.config.getInt("election.discover-nodes-frequency-ms").millis
 
   /**
     * How much time should we wait to resolve the actor of an unreachable node? The timeout should be small
     */
-  val timeoutUnreachableNode: FiniteDuration = config.getInt("election.timeout-unreachable-node-ms").millis
+  val timeoutUnreachableNode: FiniteDuration = cfg.config.getInt("election.timeout-unreachable-node-ms").millis
 
   /**
     * Check heartbeat frequently, to see if we should switch to candidate and increase the term (or simply increase
     * the term if we are already in this mode)
     */
-  val heartbeatCheckFrequency: FiniteDuration = config.getInt("election.heartbeat-check-frequency-ms").millis
+  val heartbeatCheckFrequency: FiniteDuration = cfg.config.getInt("election.heartbeat-check-frequency-ms").millis
 
   /**
     * We send Ping messages frequently
     */
-  val heartbeatFrequency: FiniteDuration = config.getInt("election.heartbeat-frequency-ms").millis
+  val heartbeatFrequency: FiniteDuration = cfg.config.getInt("election.heartbeat-frequency-ms").millis
 
   /**
     * How much time should we wait for an ElectionAttempt without any success before retrying it? This should allow enough
     * time for all services to reply, and avoid the system being stuck.
     */
-  val electionAttemptMaxFrequency: FiniteDuration = config.getInt("election.election-attempt-max-frequency-ms").millis
-  val electionAttemptMinFrequency: FiniteDuration = config.getInt("election.election-attempt-min-frequency-ms").millis
+  val electionAttemptMaxFrequency: FiniteDuration = cfg.config.getInt("election.election-attempt-max-frequency-ms").millis
+  val electionAttemptMinFrequency: FiniteDuration = cfg.config.getInt("election.election-attempt-min-frequency-ms").millis
 
 
   /**
     * Methods to get data from the embedded configuration, or the project configuration (it can override it)
     */
   private def getStringList(path: String): Seq[String] = {
-    config.getStringList(path).asScala.toList
+    cfg.config.getStringList(path).asScala.toList
   }
 
-  override val directoryName: String = "election"
-  override lazy val defaultConfig: Config = cfg
 }
