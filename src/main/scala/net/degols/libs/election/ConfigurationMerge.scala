@@ -6,7 +6,8 @@ import com.google.inject.ImplementedBy
 import com.typesafe.config.{Config, ConfigFactory}
 import org.slf4j.LoggerFactory
 
-import scala.util.Try
+import scala.io.Source
+import scala.util.{Failure, Success, Try}
 
 /**
   * Wrapper to automatically merge embedded configuration to be able to provide default values in our own library
@@ -17,10 +18,10 @@ import scala.util.Try
 @ImplementedBy(classOf[ElectionConfigurationMerge])
 trait ConfigurationMerge {
   protected val logger = LoggerFactory.getLogger(getClass)
-  val directories: Seq[String] // directory of the project, in the order we whish to aggregate the configuration, so "election", "workflow", ... The first one overrides the other one
+  val filenames: Seq[String] // The different application...conf to merge together, in the order we wish to aggregate the configuration, so "election", "workflow", ... The first one overrides the other one
 
   /**
-    * Configuration to the application.conf file, which overrides any fallback configuration
+    * Configuration to the application.election.conf file, which overrides any fallback configuration
     */
   protected lazy val projectConfig: Config = {
     val pathToProjectFile = Try{ConfigFactory.systemProperties().getString("config.resource")}.getOrElse("conf/application.conf")
@@ -32,18 +33,16 @@ trait ConfigurationMerge {
     * Merge multiple fallback configuration together
     */
   protected lazy val fallbackConfig: Config = {
-    directories.foldLeft(ConfigFactory.empty)((mergedConfig, directory) => {
+    filenames.foldLeft(ConfigFactory.empty)((mergedConfig, filename) => {
       // Should not be a big deal to load multiple times the same config as fallback. In any case, in a properly configured
       // system it should be okay
-      val fileInSubproject = new File(s"../$directory/src/main/resources/application.conf")
-      val fileInProject = new File("main/resources/application.conf")
-      val fallback = if (fileInSubproject.exists()) {
-        logger.debug(s"Create fallback config from $directory: file found, this is as sub-project")
-        ConfigFactory.load(ConfigFactory.parseFile(fileInSubproject))
-      } else {
-        // If wrongly configured, this code means that we could have override in a wrong order
-        logger.debug(s"Create fallback config from $directory: file not found, we assume we should load the project")
-        ConfigFactory.load(ConfigFactory.parseFile(fileInProject))
+      val fallback = Try {
+        Source.fromResource(filename).mkString
+      } match {
+        case Success(s) => ConfigFactory.load(ConfigFactory.parseString(s))
+        case Failure(f) =>
+          logger.error(s"Impossible to read resource file $filename for the ConfigurationMerge, we will re-throw the exception.")
+          throw f
       }
       mergedConfig.withFallback(fallback)
     })
@@ -58,8 +57,6 @@ trait ConfigurationMerge {
       throw new Exception("fallbackConfig is null")
     }
 
-    logger.debug(s"ProjectConfig for election is ${Try{projectConfig.getConfig("election")}}")
-    logger.debug(s"FallbackConfig for election is ${Try{fallbackConfig.getConfig("election")}}")
     projectConfig.withFallback(fallbackConfig)
   }
 }
