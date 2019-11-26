@@ -1,6 +1,7 @@
 package net.degols.libs.election
 
 import java.io.File
+import java.nio.file.{Files, Paths}
 
 import com.google.inject.ImplementedBy
 import com.typesafe.config.{Config, ConfigFactory}
@@ -19,6 +20,38 @@ import scala.util.{Failure, Success, Try}
 trait ConfigurationMerge {
   protected val logger = LoggerFactory.getLogger(getClass)
   val filenames: Seq[String] // The different application...conf to merge together, in the order we wish to aggregate the configuration, so "election", "workflow", ... The first one overrides the other one
+
+  /**
+    * Paths external to the current JVM process for partial configuration overrides
+    */
+  protected lazy val externalConfigPaths: String = ""
+
+  /**
+    * Environment variable which can be used to to specify a specific list of files to load for partial config override
+    */
+  protected lazy val environmentVariableName: String = "EXTERNAL_CONFIGURATION"
+
+  protected lazy val externalConfig: Config = {
+    val paths = Option(System.getenv(environmentVariableName)).getOrElse(externalConfigPaths).split(';')
+    paths.foldLeft(ConfigFactory.empty)((mergedConfig, p) => {
+      val fallback = if (Files.exists(Paths.get(p))) {
+        Try {
+          val cfg = Source.fromFile(p).mkString
+          ConfigFactory.load(ConfigFactory.parseString(cfg))
+        } match {
+          case Success(cfg) => cfg
+          case Failure(err) =>
+            logger.error(s"Failure to read partial config file override from the local file system: $p", err)
+            throw err
+        }
+      } else {
+        logger.info(s"No partial config file override found on the local file system: $p")
+        ConfigFactory.empty()
+      }
+      mergedConfig.withFallback(fallback)
+    })
+  }
+
 
   /**
     * Configuration to the application.election.conf file, which overrides any fallback configuration
@@ -57,6 +90,6 @@ trait ConfigurationMerge {
       throw new Exception("fallbackConfig is null")
     }
 
-    projectConfig.withFallback(fallbackConfig)
+    externalConfig.withFallback(projectConfig).withFallback(fallbackConfig)
   }
 }
